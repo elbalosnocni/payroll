@@ -11,7 +11,7 @@ Option Explicit
 ' Flexible:
 ' \\192.168.0.253\vn hr\SALARY - 2014 - 2015\Printing line\YYYY\PRINTING LINE MM-YYYY.xlsb
 '
-' XLSB password: 1234
+' XLSB password: 2410
 '
 ' DSCNV:
 ' B  = Họ tên
@@ -42,8 +42,8 @@ Option Explicit
 Private Const GAS_URL As String = _
 "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
 
-Private Const SYNC_API_KEY As String = "PUT_YOUR_RANDOM_SYNC_API_KEY_HERE"
-Private Const XLS_PASSWORD As String = "1234"
+Private Const SYNC_API_KEY As String = "TRUONGCONGVU_SALARYSLIP_20021988_Elbalosnocni"
+Private Const XLS_PASSWORD As String = "2410"
 Private Const ROOT As String = "\\192.168.0.253\vn hr\"
 
 Private Const BATCH_SIZE As Long = 500
