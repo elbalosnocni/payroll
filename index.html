@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tra Cứu Bảng Lương Nhân Viên</title>
+    <link href="https://jsdelivr.net" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; padding-top: 50px; }
+        .card { border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .result-table { display: none; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card p-4">
+                <h3 class="text-center text-primary mb-4">TRA CỨU LƯƠNG NHÂN VIÊN</h3>
+                
+                <div class="mb-3">
+                    <label for="cccdInput" class="form-label">Nhập số CCCD/CMND:</label>
+                    <input type="text" id="cccdInput" class="form-control" placeholder="Nhập chính xác số CCCD...">
+                </div>
+                
+                <button class="btn btn-primary w-100" onclick="traCuuLuong()">Tra Cứu</button>
+                
+                <div id="errorMessage" class="text-danger mt-3 text-center fw-bold"></div>
+            </div>
+            
+            <!-- Bảng kết quả -->
+            <div id="resultCard" class="card p-4 result-table">
+                <h4 class="text-success text-center">THÔNG TIN CHI TIẾT</h4>
+                <hr>
+                <p><strong>Họ và Tên:</strong> <span id="resTen" class="text-uppercase fw-bold"></span></p>
+                <p><strong>Số CCCD:</strong> <span id="resCCCD"></span></p>
+                
+                <table class="table table-bordered mt-3">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Khoản mục</th>
+                            <th>Số tiền (VNĐ)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="salaryDetails">
+                        <!-- Dữ liệu lương tự động chèn vào đây -->
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    // 🔴 THAY LINK CSV CỦA GOOGLE SHEETS CỦA BẠN VÀO ĐÂY
+    const sheetCsvUrl = "https://google.com";
+
+    async function fetchSheetData() {
+        const response = await fetch(sheetCsvUrl);
+        const data = await response.text();
+        return parseCSV(data);
+    }
+
+    function parseCSV(text) {
+        const lines = text.split("\n");
+        const headers = lines[0].split(",").map(h => h.trim());
+        const rows = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i]) continue;
+            const values = lines[i].split(",").map(v => v.trim());
+            const rowObject = {};
+            headers.forEach((header, index) => {
+                rowObject[header] = values[index];
+            });
+            rows.push(rowObject);
+        }
+        return rows;
+    }
+
+    async function traCuuLuong() {
+        const cccdSearch = document.getElementById("cccdInput").value.trim();
+        const errorDiv = document.getElementById("errorMessage");
+        const resultCard = document.getElementById("resultCard");
+        const salaryDetails = document.getElementById("salaryDetails");
+
+        errorDiv.innerText = "";
+        resultCard.style.display = "none";
+        salaryDetails.innerHTML = "";
+
+        if (!cccdSearch) {
+            errorDiv.innerText = "Vui lòng nhập số CCCD!";
+            return;
+        }
+
+        try {
+            const data = await fetchSheetData();
+            
+            // Tìm nhân viên theo số CCCD (Khóa chính)
+            // Lưu ý: Tên cột trong file Google Sheet phải trùng khớp chính xác (Ví dụ: "Số CCCD", "Họ và Tên")
+            const nhanVien = data.find(row => row["Số CCCD"] === cccdSearch);
+
+            if (nhanVien) {
+                document.getElementById("resTen").innerText = nhanVien["Họ và Tên"] || "Không rõ";
+                document.getElementById("resCCCD").innerText = nhanVien["Số CCCD"];
+                
+                // Tự động quét tất cả các cột lương còn lại để hiển thị vào bảng
+                let tableContent = "";
+                for (const key in nhanVien) {
+                    if (key !== "Số CCCD" && key !== "Họ và Tên" && nhanVien[key]) {
+                        tableContent += `<tr><td>${key}</td><td class="fw-bold text-end">${nhanVien[key]}</td></tr>`;
+                    }
+                }
+                
+                salaryDetails.innerHTML = tableContent;
+                resultCard.style.display = "block";
+            } else {
+                errorDiv.innerText = "Không tìm thấy thông tin lương cho số CCCD này!";
+            }
+        } catch (error) {
+            errorDiv.innerText = "Có lỗi xảy ra khi kết nối dữ liệu. Vui lòng thử lại!";
+            console.error(error);
+        }
+    }
+</script>
+</body>
+</html>
