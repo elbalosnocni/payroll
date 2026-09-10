@@ -3,50 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tra Cứu Bảng Lương Nhân Viên</title>
+    <title>Tra Cứu Phiếu Lương Điện Tử</title>
+    <!-- Bootstrap 5 -->
     <link href="https://jsdelivr.net" rel="stylesheet">
+    <!-- Google Fonts & Icons -->
+    <link href="https://googleapis.com" rel="stylesheet">
+    <link rel="stylesheet" href="https://jsdelivr.net">
+    
     <style>
-        body { background-color: #f8f9fa; padding-top: 50px; }
-        .card { border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        .result-table { display: none; margin-top: 20px; }
+        body { font-family: 'Inter', sans-serif; background-color: #f4f6f9; color: #333; padding: 30px 0; }
+        .card-custom { border: none; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); background: #ffffff; }
+        .btn-search { background: linear-gradient(135deg, #0d6efd, #0043a8); border: none; font-weight: 600; padding: 12px; transition: all 0.3s; }
+        .btn-search:hover { transform: translateY(-1px); box-shadow: 0 5px 15px rgba(13, 110, 253, 0.3); }
+        
+        /* Style Phiếu Lương Điện Tử */
+        .payslip-container { display: none; margin-top: 25px; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }
+        .payslip-header { background: #0f172a; color: #fff; padding: 20px; text-align: center; position: relative; }
+        .payslip-header::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #3b82f6, #10b981); }
+        .section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 16px; background-color: #f8fafc; color: #475569; margin-bottom: 0; border-top: 1px solid #edf2f7; border-bottom: 1px solid #edf2f7; }
+        
+        /* Thiết kế dòng dữ liệu tối ưu cho Mobile */
+        .payslip-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
+        .payslip-row:last-child { border-bottom: none; }
+        .row-label { font-weight: 500; color: #1e293b; max-width: 50%; }
+        .row-values { display: flex; align-items: center; text-align: right; }
+        .col-qty { color: #64748b; font-size: 13px; margin-right: 15px; font-style: italic; }
+        .col-amount { font-weight: 600; color: #0f172a; }
+        
+        /* Màu sắc đặc trưng từng nhóm */
+        .text-income { color: #10b981 !important; }
+        .text-deduct { color: #ef4444 !important; }
+        .total-net-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px 16px; display: flex; justify-content: space-between; align-items: center; border-radius: 12px; margin: 16px; }
     </style>
 </head>
 <body>
 
-<div class="container">
+<div class="container px-3">
     <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="card p-4">
-                <h3 class="text-center text-primary mb-4">TRA CỨU LƯƠNG NHÂN VIÊN</h3>
-                
-                <div class="mb-3">
-                    <label for="cccdInput" class="form-label">Nhập số CCCD/CMND:</label>
-                    <input type="text" id="cccdInput" class="form-control" placeholder="Nhập chính xác số CCCD...">
+        <div class="col-md-6 col-lg-5">
+            
+            <!-- HỘP TÌM KIẾM -->
+            <div class="card card-custom p-4 mb-3">
+                <div class="text-center mb-4">
+                    <i class="bi bi-shield-lock-fill text-primary" style="font-size: 2.5rem;"></i>
+                    <h4 class="fw-bold mt-2 text-uppercase text-dark" style="letter-spacing: 0.5px;">Tra Cứu Phiếu Lương</h4>
+                    <p class="text-muted small">Thông tin của bạn được mã hóa bảo mật hoàn toàn</p>
                 </div>
                 
-                <button class="btn btn-primary w-100" onclick="traCuuLuong()">Tra Cứu</button>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-secondary">Họ và Tên:</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted"><i class="bi bi-person"></i></span>
+                        <input type="text" id="nameInput" class="form-control" placeholder="Ví dụ: Nguyễn Văn A">
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label small fw-semibold text-secondary">Số Căn cước công dân (CCCD):</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted"><i class="bi bi-card-id"></i></span>
+                        <input type="password" id="cccdInput" class="form-control" placeholder="Nhập số CCCD gồm 12 số">
+                    </div>
+                </div>
                 
-                <div id="errorMessage" class="text-danger mt-3 text-center fw-bold"></div>
+                <button class="btn btn-primary w-100 btn-search shadow-sm" onclick="processTraCuu()">
+                    <i class="bi bi-search me-2"></i>XÁC THỰC & TRA CỨU
+                </button>
+                
+                <div id="loading" class="text-center mt-3" style="display: none;">
+                    <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
+                    <span class="ms-2 text-muted small">Đang kết nối API bảo mật...</span>
+                </div>
+
+                <div id="errorMessage" class="text-danger mt-3 text-center small fw-bold"></div>
             </div>
             
-            <!-- Bảng kết quả -->
-            <div id="resultCard" class="card p-4 result-table">
-                <h4 class="text-success text-center">THÔNG TIN CHI TIẾT</h4>
-                <hr>
-                <p><strong>Họ và Tên:</strong> <span id="resTen" class="text-uppercase fw-bold"></span></p>
-                <p><strong>Số CCCD:</strong> <span id="resCCCD"></span></p>
+            <!-- MẪU PHIẾU LƯƠNG ĐẸP (ẨN KHI CHƯA TRA CỨU) -->
+            <div id="payslipCard" class="card-custom payslip-container shadow-lg">
+                <div class="payslip-header">
+                    <h5 class="fw-bold m-0 text-uppercase tracking-wider">Phiếu Lương Điện Tử</h5>
+                    <small id="payslipMonth" class="text-white-50">Kỳ lương tháng hiện tại</small>
+                </div>
                 
-                <table class="table table-bordered mt-3">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Khoản mục</th>
-                            <th>Số tiền (VNĐ)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="salaryDetails">
-                        <!-- Dữ liệu lương tự động chèn vào đây -->
-                    </tbody>
-                </table>
+                <!-- PHẦN 1: THÔNG TIN NHÂN VIÊN -->
+                <div class="section-title"><i class="bi bi-person-badge me-2"></i>Thông tin nhân sự</div>
+                <div class="payslip-row">
+                    <span class="row-label">Họ và Tên</span>
+                    <span class="col-amount text-uppercase text-primary" id="resTen"></span>
+                </div>
+                <div id="employeeInfoGroup">
+                    <!-- Các thông tin phụ như chức vụ, bộ phận tự động chèn nếu có ở Sheet -->
+                </div>
+
+                <!-- PHẦN 2: THU NHẬP (CÓ CỘT NGÀY/GIỜ) -->
+                <div class="section-title"><i class="bi bi-cash-coin me-2 text-success"></i>Các khoản thu nhập</div>
+                <div id="incomeGroup">
+                    <!-- Data thu nhập đổ vào đây -->
+                </div>
+
+                <!-- PHẦN 3: KHẤU TRỪ -->
+                <div class="section-title"><i class="bi bi-dash-circle me-2 text-danger"></i>Các khoản khấu trừ</div>
+                <div id="deductGroup">
+                    <!-- Data khấu trừ đổ vào đây -->
+                </div>
+
+                <!-- PHẦN 4: THỰC NHẬN -->
+                <div class="total-net-box">
+                    <div>
+                        <h6 class="fw-bold m-0 text-success">THỰC NHẬN (NET)</h6>
+                        <small class="text-muted" style="font-size: 11px;">Đã trừ các khoản khấu trừ</small>
+                    </div>
+                    <h4 class="fw-bold m-0 text-success" id="resThucNhan">0 đ</h4>
+                </div>
+                
+                <div class="text-center pb-3">
+                    <button class="btn btn-sm btn-outline-secondary px-3" onclick="window.print()">
+                        <i class="bi bi-printer me-1"></i> In phiếu lương
+                    </button>
+                </div>
             </div>
 
         </div>
@@ -54,76 +128,67 @@
 </div>
 
 <script>
-    // 🔴 THAY LINK CSV CỦA GOOGLE SHEETS CỦA BẠN VÀO ĐÂY
-    const sheetCsvUrl = "https://google.com";
+    // 🔴 DÁN LINK WEB APP GOOGLE APPS SCRIPT (EXEC) CỦA BẠN VÀO ĐÂY
+    const API_URL = "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec";
 
-    async function fetchSheetData() {
-        const response = await fetch(sheetCsvUrl);
-        const data = await response.text();
-        return parseCSV(data);
-    }
-
-    function parseCSV(text) {
-        const lines = text.split("\n");
-        const headers = lines[0].split(",").map(h => h.trim());
-        const rows = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-            if (!lines[i]) continue;
-            const values = lines[i].split(",").map(v => v.trim());
-            const rowObject = {};
-            headers.forEach((header, index) => {
-                rowObject[header] = values[index];
-            });
-            rows.push(rowObject);
-        }
-        return rows;
-    }
-
-    async function traCuuLuong() {
-        const cccdSearch = document.getElementById("cccdInput").value.trim();
+    async function processTraCuu() {
+        const hoTen = document.getElementById("nameInput").value.trim();
+        const cccd = document.getElementById("cccdInput").value.trim();
         const errorDiv = document.getElementById("errorMessage");
-        const resultCard = document.getElementById("resultCard");
-        const salaryDetails = document.getElementById("salaryDetails");
+        const payslipCard = document.getElementById("payslipCard");
+        const loading = document.getElementById("loading");
 
         errorDiv.innerText = "";
-        resultCard.style.display = "none";
-        salaryDetails.innerHTML = "";
-
-        if (!cccdSearch) {
-            errorDiv.innerText = "Vui lòng nhập số CCCD!";
+        payslipCard.style.display = "none";
+        
+        if (!hoTen || !cccd) {
+            errorDiv.innerText = "Vui lòng nhập đầy đủ cả Họ tên và Số CCCD!";
             return;
         }
 
-        try {
-            const data = await fetchSheetData();
-            
-            // Tìm nhân viên theo số CCCD (Khóa chính)
-            // Lưu ý: Tên cột trong file Google Sheet phải trùng khớp chính xác (Ví dụ: "Số CCCD", "Họ và Tên")
-            const nhanVien = data.find(row => row["Số CCCD"] === cccdSearch);
+        loading.style.display = "block";
 
-            if (nhanVien) {
-                document.getElementById("resTen").innerText = nhanVien["Họ và Tên"] || "Không rõ";
-                document.getElementById("resCCCD").innerText = nhanVien["Số CCCD"];
+        try {
+            const cleanResponse = await fetch(API_URL, {
+                method: "POST",
+                body: JSON.stringify({ hoTen: hoTen, cccd: cccd })
+            });
+            
+            const resData = await cleanResponse.json();
+            loading.style.display = "none";
+
+            if (resData.success) {
+                document.getElementById("resTen").innerText = resData.hoTen;
                 
-                // Tự động quét tất cả các cột lương còn lại để hiển thị vào bảng
-                let tableContent = "";
-                for (const key in nhanVien) {
-                    if (key !== "Số CCCD" && key !== "Họ và Tên" && nhanVien[key]) {
-                        tableContent += `<tr><td>${key}</td><td class="fw-bold text-end">${nhanVien[key]}</td></tr>`;
+                let incomeHtml = "";
+                let deductHtml = "";
+                let infoHtml = "";
+                let netAmount = "0 đ";
+
+                const salaryData = resData.data;
+
+                // Thuật toán bóc tách và bắt cặp Giờ/Ngày với Tiền lương tương ứng
+                // Tìm kiếm tất cả các cột chứa giá trị số lượng trước (ngày công, giờ tăng ca...)
+                let qtyMap = {};
+                for (const key in salaryData) {
+                    if (key.includes("Ngày") || key.includes("Giờ") || key.includes("Công")) {
+                        qtyMap[key] = salaryData[key];
                     }
                 }
-                
-                salaryDetails.innerHTML = tableContent;
-                resultCard.style.display = "block";
-            } else {
-                errorDiv.innerText = "Không tìm thấy thông tin lương cho số CCCD này!";
-            }
-        } catch (error) {
-            errorDiv.innerText = "Có lỗi xảy ra khi kết nối dữ liệu. Vui lòng thử lại!";
-            console.error(error);
-        }
-    }
-</script>
-</body>
-</html>
+
+                for (const key in salaryData) {
+                    let val = salaryData[key];
+                    let formattedVal = val;
+                    
+                    // Định dạng tiền tệ nếu là số tiền
+                    if (!isNaN(val) && val !== "") {
+                        formattedVal = Number(val).toLocaleString('vi-VN') + " đ";
+                    }
+
+                    // 1. Nhận diện cột THỰC NHẬN cuối cùng
+                    if (key.includes("Thực nhận") || key.includes("Thực lĩnh") || key.includes("NET")) {
+                        netAmount = formattedVal;
+                        continue;
+                    }
+
+// 2. Nhận diện nhóm KHẤU TRỪ (Bảo hiểm, thuế, phạt...)if (key.includes("Bảo hiểm") || key.includes("BHXH") || key.includes("Thuế") || key.includes("Phạt") || key.includes("Khấu trừ") || key.includes("Tạm ứng")) {deductHtml +=  <div class="payslip-row"> <span class="row-label text-secondary">${key}</span> <span class="col-amount text-deduct">-${formattedVal}</span> </div>;}// 3. Nhận diện nhóm THU NHẬP (Lương, thưởng, phụ cấp...)else if (key.includes("Lương") || key.includes("Thưởng") || key.includes("Phụ cấp") || key.includes("Tăng ca") || key.includes("Chuyên cần")) {// Tìm xem có cột giờ/ngày nào liên quan đến cột thu nhập này không (Ví dụ: "Ngày công" đi với "Lương")let linkedQty = "";for (let qtyKey in qtyMap) {// Nếu cột công có từ khóa tương đồng (ví dụ: "Tăng ca" và "Giờ tăng ca")if (key.includes("Tăng ca") && qtyKey.includes("Tăng ca")) {linkedQty = qtyMap[qtyKey] + " giờ";delete qtyMap[qtyKey]; // Tránh hiển thị trùng lặpbreak;} else if (qtyKey.includes("Ngày") || qtyKey.includes("Công")) {if (key.includes("Lương") || key.includes("Cơ bản")) {linkedQty = qtyMap[qtyKey] + " ngày";delete qtyMap[qtyKey];break;}}}incomeHtml += <div class="payslip-row"> <span class="row-label">${key}</span> <div class="row-values"> ${linkedQty ?${linkedQty} : ''} <span class="col-amount text-income">+${formattedVal}</span> </div> </div>;}// 4. Các thông tin dạng chữ khác (Chức vụ, Bộ phận, Mã NV...)else {if (!key.includes("Ngày") && !key.includes("Giờ") && !key.includes("Công")) {infoHtml +=  <div class="payslip-row"> <span class="row-label text-muted" style="font-size:13px">${key}</span> <span class="col-amount text-secondary" style="font-size:13px">${val}</span> </div>;}}}// Chèn nốt các cột công/giờ đơn lẻ nếu bộ lọc trên chưa quét hếtfor (let qtyKey in qtyMap) {incomeHtml +=  <div class="payslip-row"> <span class="row-label">${qtyKey}</span> <div class="row-values"> <span class="col-amount">${qtyMap[qtyKey]}</span> </div> </div>;}// Đổ dữ liệu ra giao diện phiếu lươngdocument.getElementById("employeeInfoGroup").innerHTML = infoHtml || <div class="p-2 text-center text-muted small">Không có thông tin bổ sung</div>;document.getElementById("incomeGroup").innerHTML = incomeHtml || <div class="p-2 text-center text-muted small">Không có dữ liệu thu nhập</div>;document.getElementById("deductGroup").innerHTML = deductHtml || <div class="p-2 text-center text-muted small">Không có khoản khấu trừ nào</div>;document.getElementById("resThucNhan").innerText = netAmount;payslipCard.style.display = "block";} else {errorDiv.innerText = resData.message;}} catch (error) {loading.style.display = "none";errorDiv.innerText = "Không thể kết nối tới máy chủ tra cứu. Vui lòng kiểm tra lại mạng!";console.error(error);}}
