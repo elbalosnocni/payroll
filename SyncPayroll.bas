@@ -1,52 +1,52 @@
 Option Explicit
 
 ' ============================================================
-' PAYROLL SYNC VBA - ĐÃ CHỈNH THEO FILE:
+' PAYROLL SYNC VBA - ÐÃ CH?NH THEO FILE:
 ' PRINTING LINE 08-2026.xlsb
 '
-' FILE THỰC TẾ:
+' FILE TH?C T?:
 ' Salary:
-'   Họ tên = CF (84)
+'   H? tên = CF (84)
 '   Mã NV  = D  (4)
 '
 ' DSCNV:
-'   Họ tên = B  (2)
+'   H? tên = B  (2)
 '   CCCD  = H  (8)
 '
-' Theo file bạn gửi, các cột chức danh thực tế là:
-'   AF (32) = BỘ PHẬN ENG / DEPARTMENT
-'   AG (33) = CHỨC VỤ ENG / TITLE
-'   AH (34) = DEPARTMENT / BỘ PHẬN VN
-'   AI (35) = CHỨC VỤ / POSITION VN
+' Theo file b?n g?i, các c?t ch?c danh th?c t? là:
+'   AF (32) = B? PH?N ENG / DEPARTMENT
+'   AG (33) = CH?C V? ENG / TITLE
+'   AH (34) = DEPARTMENT / B? PH?N VN
+'   AI (35) = CH?C V? / POSITION VN
 '
-' Vì yêu cầu hiển thị tiếng Việt, code lấy:
+' Vì yêu c?u hi?n th? ti?ng Vi?t, code l?y:
 '   Department = AF
 '   Section    = AH
 '   Position   = AI
 '
-' Salary data bắt đầu thực tế từ row 9 trong file mẫu.
-' Code không phụ thuộc tuyệt đối vào row 9:
-' nó tìm dòng có Mã NV ở cột D và Họ tên ở CF.
+' Salary data b?t d?u th?c t? t? row 9 trong file m?u.
+' Code không ph? thu?c tuy?t d?i vào row 9:
+' nó tìm dòng có Mã NV ? c?t D và H? tên ? CF.
 '
-' 2 XƯỞNG:
+' 2 XU?NG:
 ' Snack:
 ' \\192.168.0.253\vn hr\SALARY - 2014 - 2015\VNLWW\YYYY\SALARY MM-YYYY.xlsb
 '
 ' Flexible:
 ' \\192.168.0.253\vn hr\SALARY - 2014 - 2015\Printing line\YYYY\PRINTING LINE MM-YYYY.xlsb
 '
-' Password XLSB: 1234
+' Password XLSB: 2410
 '
-' Ngày 10/09/2026 -> lấy tháng 08-2026.
+' Ngày 10/09/2026 -> l?y tháng 08-2026.
 '
 ' ============================================================
 
 Private Const GAS_URL As String = _
 "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
 
-Private Const SYNC_API_KEY As String = "THAY_BANG_SYNC_API_KEY"
+Private Const SYNC_API_KEY As String = "TRUONGCONGVU_SALARYSLIP_20021988_Elbalosnocni"
 
-Private Const XLS_PASSWORD As String = "1234"
+Private Const XLS_PASSWORD As String = "2410"
 
 Private Const ROOT As String = "\\192.168.0.253\vn hr\"
 
@@ -130,22 +130,22 @@ Public Sub SyncBothFactories()
     If FileExists_(snackPath) Then
         SyncFactoryFile snackPath, "Snack", payMonth
     Else
-        MsgBox "Không tìm thấy file Snack:" & vbCrLf & _
+        MsgBox "Không tìm th?y file Snack:" & vbCrLf & _
                snackPath, vbExclamation
     End If
 
     If FileExists_(flexPath) Then
         SyncFactoryFile flexPath, "Flexible", payMonth
     Else
-        MsgBox "Không tìm thấy file Flexible:" & vbCrLf & _
+        MsgBox "Không tìm th?y file Flexible:" & vbCrLf & _
                flexPath, vbExclamation
     End If
 
-    MsgBox "Đã xử lý đồng bộ kỳ lương " & payMonth, vbInformation
+    MsgBox "Ðã x? lý d?ng b? k? luong " & payMonth, vbInformation
 
 End Sub
 
-' Chạy riêng nếu muốn test 1 xưởng.
+' Ch?y riêng n?u mu?n test 1 xu?ng.
 Public Sub SyncFlexibleOnly()
 
     Dim payMonth As String
@@ -160,7 +160,7 @@ Public Sub SyncFlexibleOnly()
         "\PRINTING LINE " & payMonth & ".xlsb"
 
     If Not FileExists_(p) Then
-        MsgBox "Không tìm thấy:" & vbCrLf & p, vbCritical
+        MsgBox "Không tìm th?y:" & vbCrLf & p, vbCritical
         Exit Sub
     End If
 
@@ -182,7 +182,7 @@ Public Sub SyncSnackOnly()
         "\SALARY " & payMonth & ".xlsb"
 
     If Not FileExists_(p) Then
-        MsgBox "Không tìm thấy:" & vbCrLf & p, vbCritical
+        MsgBox "Không tìm th?y:" & vbCrLf & p, vbCritical
         Exit Sub
     End If
 
@@ -241,8 +241,8 @@ Public Sub SyncFactoryFile( _
         employeeId = CleanText_(wsSalary.Cells(r, COL_EMPLOYEE_ID).Text)
         fullName = CleanText_(wsSalary.Cells(r, COL_NAME).Text)
 
-        ' Chỉ lấy dòng nhân viên thật.
-        ' Các dòng TOTAL/heading thường không có EmployeeID.
+        ' Ch? l?y dòng nhân viên th?t.
+        ' Các dòng TOTAL/heading thu?ng không có EmployeeID.
         If employeeId <> "" And fullName <> "" Then
 
             Dim ds As Object
@@ -269,8 +269,8 @@ Public Sub SyncFactoryFile( _
                 position = CleanText_(CStr(ds("Position")))
             End If
 
-            ' Nếu tên không match nhưng mã nhân viên có trong DSCNV,
-            ' thử fallback theo EmployeeID.
+            ' N?u tên không match nhung mã nhân viên có trong DSCNV,
+            ' th? fallback theo EmployeeID.
             If citizenId = "" Then
                 Dim dsByCode As Object
                 Set dsByCode = FindDSByEmployeeCode_(wsDS, employeeId)
@@ -332,7 +332,7 @@ Public Sub SyncFactoryFile( _
             AddJsonNumber_ jsonRows, "PersonalIncomeTax", wsSalary.Cells(r, COL_TAX).Value2, True
             AddJsonNumber_ jsonRows, "Advance", wsSalary.Cells(r, COL_ADVANCE).Value2, True
 
-            ' Khấu trừ khác = AJ
+            ' Kh?u tr? khác = AJ
             AddJsonNumber_ jsonRows, "OtherDeductions", wsSalary.Cells(r, COL_OTHER_DEDUCT).Value2, True
 
             ' AW = NetPay
@@ -369,14 +369,14 @@ Public Sub SyncFactoryFile( _
 
     If InStr(1, response, """ok"":true", vbTextCompare) = 0 Then
         MsgBox _
-            "Đồng bộ " & factory & " thất bại." & vbCrLf & _
-            "Số dòng tạo: " & countRows & vbCrLf & _
+            "Ð?ng b? " & factory & " th?t b?i." & vbCrLf & _
+            "S? dòng t?o: " & countRows & vbCrLf & _
             response, vbCritical
     Else
         MsgBox _
-            "Đồng bộ " & factory & " thành công." & vbCrLf & _
-            "Kỳ: " & payMonth & vbCrLf & _
-            "Số nhân viên: " & countRows, vbInformation
+            "Ð?ng b? " & factory & " thành công." & vbCrLf & _
+            "K?: " & payMonth & vbCrLf & _
+            "S? nhân viên: " & countRows, vbInformation
     End If
 
     Exit Sub
@@ -389,7 +389,7 @@ EH:
     If Not wb Is Nothing Then wb.Close SaveChanges:=False
 
     MsgBox _
-        "Lỗi SyncFactoryFile:" & vbCrLf & _
+        "L?i SyncFactoryFile:" & vbCrLf & _
         Err.Number & " - " & Err.Description, vbCritical
 
 End Sub
@@ -427,16 +427,16 @@ Private Function BuildDSMap_(ws As Worksheet) As Object
 
                 x("EmployeeID") = employeeCode
 
-                ' H là CCCD, phải lấy .Text để giữ số 0 đầu.
+                ' H là CCCD, ph?i l?y .Text d? gi? s? 0 d?u.
                 x("CitizenID") = CleanCCCD_(ws.Cells(r, DS_CCCD).Text)
 
-                ' Theo file thực tế đã upload:
+                ' Theo file th?c t? dã upload:
                 x("Department") = CleanText_(ws.Cells(r, DS_DEPARTMENT_EN).Text)
 
-                ' Section = bộ phận VN
+                ' Section = b? ph?n VN
                 x("Section") = CleanText_(ws.Cells(r, DS_DEPARTMENT_VN).Text)
 
-                ' Position = chức vụ VN
+                ' Position = ch?c v? VN
                 x("Position") = CleanText_(ws.Cells(r, DS_POSITION_VN).Text)
 
                 d(NormalizeName_(fullName)) = x
@@ -544,7 +544,7 @@ Private Function JsonNumber_(ByVal value As Variant) As String
         If d = 0 Then
             JsonNumber_ = "0"
         Else
-            ' VBA Decimal separator phụ thuộc Windows.
+            ' VBA Decimal separator ph? thu?c Windows.
             JsonNumber_ = Replace( _
                 Format$(d, "0.############"), _
                 Application.International(xlDecimalSeparator), _
@@ -581,11 +581,11 @@ Private Function HttpPostJson_( _
 
         HttpPostJson_ = _
             "HTTP " & http.Status & vbCrLf & _
-            http.ResponseText
+            http.responseText
 
     Else
 
-        HttpPostJson_ = http.ResponseText
+        HttpPostJson_ = http.responseText
 
     End If
 
@@ -636,7 +636,7 @@ Private Function CleanCCCD_(ByVal value As String) As String
 
     value = Trim$(value)
 
-    ' Excel có thể hiển thị dấu apostrophe khi nhập text.
+    ' Excel có th? hi?n th? d?u apostrophe khi nh?p text.
     If Left$(value, 1) = "'" Then
         value = Mid$(value, 2)
     End If
@@ -656,3 +656,4 @@ Private Function NormalizeName_(ByVal value As String) As String
     NormalizeName_ = UCase$(value)
 
 End Function
+
