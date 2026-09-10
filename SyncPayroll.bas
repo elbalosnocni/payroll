@@ -11,7 +11,7 @@ Option Explicit
 ' Flexible:
 ' \\192.168.0.253\vn hr\SALARY - 2014 - 2015\Printing line\YYYY\PRINTING LINE MM-YYYY.xlsb
 '
-' XLSB password: 2410
+' XLSB password: 1234
 '
 ' DSCNV:
 ' B  = Họ tên
@@ -42,8 +42,8 @@ Option Explicit
 Private Const GAS_URL As String = _
 "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
 
-Private Const SYNC_API_KEY As String = "TRUONGCONGVU_SALARYSLIP_20021988_Elbalosnocni"
-Private Const XLS_PASSWORD As String = "2410"
+Private Const SYNC_API_KEY As String = "PUT_YOUR_RANDOM_SYNC_API_KEY_HERE"
+Private Const XLS_PASSWORD As String = "1234"
 Private Const ROOT As String = "\\192.168.0.253\vn hr\"
 
 Private Const BATCH_SIZE As Long = 500
@@ -190,6 +190,11 @@ Public Function SyncFactoryFile( _
 
     On Error GoTo EH
 
+    If SYNC_API_KEY = "PUT_YOUR_RANDOM_SYNC_API_KEY_HERE" Or Len(SYNC_API_KEY) < 24 Then
+        MsgBox "Hãy thay SYNC_API_KEY bằng khóa ngẫu nhiên mới trước khi đồng bộ.", vbCritical
+        Exit Function
+    End If
+
     Application.ScreenUpdating = False
     Application.DisplayAlerts = False
     Application.EnableEvents = False
@@ -219,7 +224,7 @@ Public Function SyncFactoryFile( _
     lastRow = wsSalary.Cells( _
         wsSalary.Rows.Count, COL_EMPLOYEE_ID).End(xlUp).Row
 
-    If lastRow < 1 Then
+    If lastRow < 2 Then
         MsgBox factory & ": không có dữ liệu Salary.", vbExclamation
         GoTo FAIL_EXIT
     End If
@@ -246,7 +251,7 @@ Public Function SyncFactoryFile( _
 
     i = 0
 
-    For r = 1 To lastRow
+    For r = 2 To lastRow
         emp = CleanText_(CStrSafe_(salaryData(r, COL_EMPLOYEE_ID)))
         nm = CleanText_(CStrSafe_(salaryData(r, COL_NAME)))
 
@@ -350,7 +355,7 @@ Private Sub BuildDSMaps_(ByVal ws As Worksheet)
     Dim employeeId As String
     Dim fullName As String
 
-    For r = 1 To lastRow
+    For r = 2 To lastRow
         employeeId = CleanText_(CStrSafe_(data(r, DS_EMPLOYEE_ID)))
         fullName = NormalizeName_(CStrSafe_(data(r, DS_NAME)))
 
@@ -564,6 +569,8 @@ Private Function JsonString_(ByVal s As String) As String
     s = Replace(s, vbCr, "\n")
     s = Replace(s, vbLf, "\n")
     s = Replace(s, vbTab, "\t")
+    s = Replace(s, ChrW(8), "\b")
+    s = Replace(s, ChrW(12), "\f")
 
     JsonString_ = """" & s & """"
 End Function
@@ -659,7 +666,12 @@ Private Function CountSalaryRows_( _
     Dim r As Long
     Dim count As Long
 
-    For r = 1 To lastRow
+    If lastRow < 2 Then
+        CountSalaryRows_ = 0
+        Exit Function
+    End If
+
+    For r = 2 To lastRow
         If CleanText_(CStrSafe_(data(r, COL_EMPLOYEE_ID))) <> "" And _
            CleanText_(CStrSafe_(data(r, COL_NAME))) <> "" Then
             count = count + 1
