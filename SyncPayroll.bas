@@ -1,111 +1,106 @@
 Option Explicit
 
 ' ============================================================
-' PAYROLL SYNC VBA - ÐÃ CH?NH THEO FILE:
-' PRINTING LINE 08-2026.xlsb
+' PAYROLL SYNC - VBA / Excel XLSB
+' Version: Optimized batch sync
 '
-' FILE TH?C T?:
-' Salary:
-'   H? tên = CF (84)
-'   Mã NV  = D  (4)
-'
-' DSCNV:
-'   H? tên = B  (2)
-'   CCCD  = H  (8)
-'
-' Theo file b?n g?i, các c?t ch?c danh th?c t? là:
-'   AF (32) = B? PH?N ENG / DEPARTMENT
-'   AG (33) = CH?C V? ENG / TITLE
-'   AH (34) = DEPARTMENT / B? PH?N VN
-'   AI (35) = CH?C V? / POSITION VN
-'
-' Vì yêu c?u hi?n th? ti?ng Vi?t, code l?y:
-'   Department = AF
-'   Section    = AH
-'   Position   = AI
-'
-' Salary data b?t d?u th?c t? t? row 9 trong file m?u.
-' Code không ph? thu?c tuy?t d?i vào row 9:
-' nó tìm dòng có Mã NV ? c?t D và H? tên ? CF.
-'
-' 2 XU?NG:
+' SOURCE FILES
 ' Snack:
 ' \\192.168.0.253\vn hr\SALARY - 2014 - 2015\VNLWW\YYYY\SALARY MM-YYYY.xlsb
 '
 ' Flexible:
 ' \\192.168.0.253\vn hr\SALARY - 2014 - 2015\Printing line\YYYY\PRINTING LINE MM-YYYY.xlsb
 '
-' Password XLSB: 2410
+' XLSB password: 1234
 '
-' Ngày 10/09/2026 -> l?y tháng 08-2026.
+' DSCNV:
+' B  = Họ tên
+' H  = CCCD
+' AF = Phòng ban
+' AG = Bộ phận
+' AH = Chức vụ
+' D  = Mã NV (used as primary join key)
 '
+' Salary:
+' D  = EmployeeID
+' CF = FullName
+' AR = TotalIncome
+' AN = MonthlySalary
+' F  = BasicSalary
+' H/I/J/K/O = days
+' AO/L/M/N/P/R/S/T/U/Q = OT
+' X/Y/Z/AA/AB/AC/AD/AE/AQ/AF = income
+' AG/AH/AI/AJ/AK/AT = deductions
+' AW = NetPay
+'
+' IMPORTANT:
+' 1) Replace SYNC_API_KEY with a NEW random key.
+' 2) Put exactly the same key into GAS Script Properties.
+' 3) The old key should be rotated because it was exposed in source/chat.
 ' ============================================================
 
 Private Const GAS_URL As String = _
 "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
 
-Private Const SYNC_API_KEY As String = "TRUONGCONGVU_SALARYSLIP_20021988_Elbalosnocni"
-
-Private Const XLS_PASSWORD As String = "2410"
-
+Private Const SYNC_API_KEY As String = "PUT_YOUR_RANDOM_SYNC_API_KEY_HERE"
+Private Const XLS_PASSWORD As String = "1234"
 Private Const ROOT As String = "\\192.168.0.253\vn hr\"
 
+Private Const BATCH_SIZE As Long = 500
+Private Const MAX_RETRY As Long = 3
+
 ' Salary columns
-Private Const COL_EMPLOYEE_ID As Long = 4       'D
-Private Const COL_BASIC As Long = 6             'F
-Private Const COL_WORKING_DAYS As Long = 8       'H
-Private Const COL_HOLIDAY_DAYS As Long = 9       'I
-Private Const COL_PAID_LEAVE As Long = 10        'J
-Private Const COL_UNPAID_LEAVE As Long = 11      'K
-Private Const COL_OT_HOURS As Long = 12          'L
-Private Const COL_REST_HOURS As Long = 13        'M
-Private Const COL_OT_REST_HOURS As Long = 14     'N
-Private Const COL_MIN_WAGE_LEAVE As Long = 15    'O
-Private Const COL_NIGHT_REST_OT As Long = 16     'P
-Private Const COL_NIGHT_OT As Long = 17          'Q
-Private Const COL_HOLIDAY_HOURS As Long = 18     'R
-Private Const COL_HOLIDAY_OT As Long = 19        'S
-Private Const COL_NIGHT_HOLIDAY_OT As Long = 20  'T
-Private Const COL_NIGHT_DAYS As Long = 21        'U
+Private Const COL_EMPLOYEE_ID As Long = 4
+Private Const COL_BASIC As Long = 6
+Private Const COL_WORKING_DAYS As Long = 8
+Private Const COL_HOLIDAY_DAYS As Long = 9
+Private Const COL_PAID_LEAVE As Long = 10
+Private Const COL_UNPAID_LEAVE As Long = 11
+Private Const COL_OT_HOURS As Long = 12
+Private Const COL_REST_HOURS As Long = 13
+Private Const COL_OT_REST_HOURS As Long = 14
+Private Const COL_MIN_WAGE_LEAVE As Long = 15
+Private Const COL_NIGHT_REST_OT As Long = 16
+Private Const COL_NIGHT_OT As Long = 17
+Private Const COL_HOLIDAY_HOURS As Long = 18
+Private Const COL_HOLIDAY_OT As Long = 19
+Private Const COL_NIGHT_HOLIDAY_OT As Long = 20
+Private Const COL_NIGHT_DAYS As Long = 21
+Private Const COL_OTHER_MONEY As Long = 24
+Private Const COL_DISCIPLINE As Long = 25
+Private Const COL_LOYALTY2 As Long = 26
+Private Const COL_LOYALTY5 As Long = 27
+Private Const COL_LOYALTY10 As Long = 28
+Private Const COL_HOUSING As Long = 29
+Private Const COL_TRANSPORT As Long = 30
+Private Const COL_ATTENDANCE As Long = 31
+Private Const COL_SEVERANCE As Long = 32
+Private Const COL_SOCIAL As Long = 33
+Private Const COL_HEALTH As Long = 34
+Private Const COL_UNEMPLOYMENT As Long = 35
+Private Const COL_OTHER_DEDUCT As Long = 36
+Private Const COL_ADVANCE As Long = 37
+Private Const COL_MONTHLY_SALARY As Long = 40
+Private Const COL_OT_PAY As Long = 41
+Private Const COL_COMMISSION As Long = 43
+Private Const COL_TOTAL_INCOME As Long = 44
+Private Const COL_TAX As Long = 46
+Private Const COL_NET_PAY As Long = 49
+Private Const COL_NAME As Long = 84
 
-Private Const COL_OTHER_MONEY As Long = 24       'X
-Private Const COL_DISCIPLINE As Long = 25        'Y
-Private Const COL_LOYALTY2 As Long = 26          'Z
-Private Const COL_LOYALTY5 As Long = 27          'AA
-Private Const COL_LOYALTY10 As Long = 28         'AB
-Private Const COL_HOUSING As Long = 29           'AC
-Private Const COL_TRANSPORT As Long = 30         'AD
-Private Const COL_ATTENDANCE As Long = 31        'AE
-Private Const COL_SEVERANCE As Long = 32         'AF
+' DSCNV columns
+Private Const DS_NAME As Long = 2
+Private Const DS_CCCD As Long = 8
+Private Const DS_DEPARTMENT As Long = 32 ' AF
+Private Const DS_SECTION As Long = 33    ' AG
+Private Const DS_POSITION As Long = 34   ' AH
+Private Const DS_EMPLOYEE_ID As Long = 4 ' D
 
-Private Const COL_SOCIAL As Long = 33            'AG
-Private Const COL_HEALTH As Long = 34            'AH
-Private Const COL_UNEMPLOYMENT As Long = 35      'AI
-Private Const COL_OTHER_DEDUCT As Long = 36      'AJ
-Private Const COL_ADVANCE As Long = 37           'AK
-
-Private Const COL_MONTHLY_SALARY As Long = 40    'AN
-Private Const COL_OT_PAY As Long = 41            'AO
-Private Const COL_COMMISSION As Long = 43        'AQ
-Private Const COL_TOTAL_INCOME As Long = 44      'AR
-Private Const COL_TAX As Long = 46               'AT
-Private Const COL_NET_PAY As Long = 49           'AW
-Private Const COL_NAME As Long = 84              'CF
-
-' DSCNV
-Private Const DS_NAME As Long = 2                 'B
-Private Const DS_CCCD As Long = 8                 'H
-Private Const DS_DEPARTMENT_EN As Long = 32       'AF
-Private Const DS_TITLE_EN As Long = 33            'AG
-Private Const DS_DEPARTMENT_VN As Long = 34       'AH
-Private Const DS_POSITION_VN As Long = 35         'AI
-
-' ============================================================
-' ENTRY POINT
-' ============================================================
+' Module-level lookup maps
+Private gDSByID As Object
+Private gDSByName As Object
 
 Public Sub SyncBothFactories()
-
     Dim payMonth As String
     payMonth = PreviousPayrollMonth_()
 
@@ -123,86 +118,81 @@ Public Sub SyncBothFactories()
         "SALARY - 2014 - 2015\Printing line\" & y & _
         "\PRINTING LINE " & payMonth & ".xlsb"
 
-    Debug.Print "Payroll month = " & payMonth
-    Debug.Print snackPath
-    Debug.Print flexPath
+    Dim msg As String
+    Dim okSnack As Boolean, okFlex As Boolean
+
+    msg = "KỲ LƯƠNG: " & payMonth & vbCrLf & vbCrLf
 
     If FileExists_(snackPath) Then
-        SyncFactoryFile snackPath, "Snack", payMonth
+        okSnack = SyncFactoryFile(snackPath, "Snack", payMonth)
+        If okSnack Then
+            msg = msg & "✓ Snack: thành công" & vbCrLf
+        Else
+            msg = msg & "✗ Snack: thất bại" & vbCrLf
+        End If
     Else
-        MsgBox "Không tìm th?y file Snack:" & vbCrLf & _
-               snackPath, vbExclamation
+        msg = msg & "✗ Snack: không tìm thấy file" & vbCrLf
     End If
 
     If FileExists_(flexPath) Then
-        SyncFactoryFile flexPath, "Flexible", payMonth
+        okFlex = SyncFactoryFile(flexPath, "Flexible", payMonth)
+        If okFlex Then
+            msg = msg & "✓ Flexible: thành công" & vbCrLf
+        Else
+            msg = msg & "✗ Flexible: thất bại" & vbCrLf
+        End If
     Else
-        MsgBox "Không tìm th?y file Flexible:" & vbCrLf & _
-               flexPath, vbExclamation
+        msg = msg & "✗ Flexible: không tìm thấy file" & vbCrLf
     End If
 
-    MsgBox "Ðã x? lý d?ng b? k? luong " & payMonth, vbInformation
-
-End Sub
-
-' Ch?y riêng n?u mu?n test 1 xu?ng.
-Public Sub SyncFlexibleOnly()
-
-    Dim payMonth As String
-    payMonth = PreviousPayrollMonth_()
-
-    Dim y As String
-    y = Right$(payMonth, 4)
-
-    Dim p As String
-    p = ROOT & _
-        "SALARY - 2014 - 2015\Printing line\" & y & _
-        "\PRINTING LINE " & payMonth & ".xlsb"
-
-    If Not FileExists_(p) Then
-        MsgBox "Không tìm th?y:" & vbCrLf & p, vbCritical
-        Exit Sub
-    End If
-
-    SyncFactoryFile p, "Flexible", payMonth
-
+    Application.StatusBar = False
+    MsgBox msg, IIf(okSnack Or okFlex, vbInformation, vbCritical), "Payroll Sync"
 End Sub
 
 Public Sub SyncSnackOnly()
-
-    Dim payMonth As String
-    payMonth = PreviousPayrollMonth_()
-
-    Dim y As String
-    y = Right$(payMonth, 4)
+    Dim pm As String
+    pm = PreviousPayrollMonth_()
 
     Dim p As String
     p = ROOT & _
-        "SALARY - 2014 - 2015\VNLWW\" & y & _
-        "\SALARY " & payMonth & ".xlsb"
+        "SALARY - 2014 - 2015\VNLWW\" & Right$(pm, 4) & _
+        "\SALARY " & pm & ".xlsb"
 
     If Not FileExists_(p) Then
-        MsgBox "Không tìm th?y:" & vbCrLf & p, vbCritical
+        MsgBox "Không tìm thấy file:" & vbCrLf & p, vbCritical
         Exit Sub
     End If
 
-    SyncFactoryFile p, "Snack", payMonth
-
+    Call SyncFactoryFile(p, "Snack", pm)
 End Sub
 
-' ============================================================
-' SYNC 1 WORKBOOK
-' ============================================================
+Public Sub SyncFlexibleOnly()
+    Dim pm As String
+    pm = PreviousPayrollMonth_()
 
-Public Sub SyncFactoryFile( _
+    Dim p As String
+    p = ROOT & _
+        "SALARY - 2014 - 2015\Printing line\" & Right$(pm, 4) & _
+        "\PRINTING LINE " & pm & ".xlsb"
+
+    If Not FileExists_(p) Then
+        MsgBox "Không tìm thấy file:" & vbCrLf & p, vbCritical
+        Exit Sub
+    End If
+
+    Call SyncFactoryFile(p, "Flexible", pm)
+End Sub
+
+Public Function SyncFactoryFile( _
     ByVal filePath As String, _
     ByVal factory As String, _
-    ByVal payMonth As String)
+    ByVal payMonth As String) As Boolean
 
     On Error GoTo EH
 
     Application.ScreenUpdating = False
     Application.DisplayAlerts = False
+    Application.EnableEvents = False
 
     Dim wb As Workbook
     Set wb = Workbooks.Open( _
@@ -218,275 +208,327 @@ Public Sub SyncFactoryFile( _
     Set wsSalary = wb.Worksheets("Salary")
     Set wsDS = wb.Worksheets("DSCNV")
 
-    Dim dsMap As Object
-    Set dsMap = BuildDSMap_(wsDS)
+    Set gDSByID = CreateObject("Scripting.Dictionary")
+    Set gDSByName = CreateObject("Scripting.Dictionary")
+    gDSByID.CompareMode = vbTextCompare
+    gDSByName.CompareMode = vbTextCompare
+
+    BuildDSMaps_ wsDS
 
     Dim lastRow As Long
-    lastRow = wsSalary.Cells(wsSalary.Rows.Count, COL_EMPLOYEE_ID).End(xlUp).Row
+    lastRow = wsSalary.Cells( _
+        wsSalary.Rows.Count, COL_EMPLOYEE_ID).End(xlUp).Row
 
-    Dim jsonRows As String
-    jsonRows = "["
+    If lastRow < 1 Then
+        MsgBox factory & ": không có dữ liệu Salary.", vbExclamation
+        GoTo FAIL_EXIT
+    End If
+
+    ' Read Salary A:CF once for speed.
+    Dim salaryData As Variant
+    salaryData = wsSalary.Range( _
+        wsSalary.Cells(1, 1), _
+        wsSalary.Cells(lastRow, COL_NAME)).Value2
+
+    Dim totalRows As Long
+    totalRows = CountSalaryRows_(salaryData, lastRow)
+
+    If totalRows = 0 Then
+        MsgBox factory & ": không có nhân viên hợp lệ.", vbExclamation
+        GoTo FAIL_EXIT
+    End If
+
+    Dim rowNums() As Long
+    ReDim rowNums(1 To totalRows)
+
+    Dim i As Long, r As Long
+    Dim emp As String, nm As String
+
+    i = 0
+
+    For r = 1 To lastRow
+        emp = CleanText_(CStrSafe_(salaryData(r, COL_EMPLOYEE_ID)))
+        nm = CleanText_(CStrSafe_(salaryData(r, COL_NAME)))
+
+        If emp <> "" And nm <> "" Then
+            i = i + 1
+            rowNums(i) = r
+        End If
+    Next r
+
+    Dim totalBatches As Long
+    totalBatches = (totalRows + BATCH_SIZE - 1) \ BATCH_SIZE
+
+    ' One batch ID for the entire factory/month sync.
+    Dim batchId As String
+    batchId = factory & "_" & _
+              Replace(payMonth, "-", "") & "_" & _
+              Format$(Now, "yyyymmddhhnnss")
+
+    Dim startIndex As Long
+    Dim endIndex As Long
+    Dim batchNo As Long
+
+    For startIndex = 1 To totalRows Step BATCH_SIZE
+        batchNo = batchNo + 1
+
+        endIndex = startIndex + BATCH_SIZE - 1
+        If endIndex > totalRows Then endIndex = totalRows
+
+        Dim payload As String
+        payload = BuildBatchPayload_( _
+            salaryData, rowNums, _
+            startIndex, endIndex, _
+            factory, payMonth, _
+            batchId, batchNo, totalBatches)
+
+        Dim response As String
+
+        If Not PostWithRetry_(payload, response) Then
+            MsgBox factory & _
+                " thất bại tại batch " & batchNo & "/" & totalBatches & _
+                vbCrLf & response, vbCritical
+            GoTo FAIL_EXIT
+        End If
+
+        If Not ResponseOK_(response) Then
+            MsgBox factory & _
+                " server từ chối batch " & batchNo & "/" & totalBatches & _
+                vbCrLf & response, vbCritical
+            GoTo FAIL_EXIT
+        End If
+
+        Application.StatusBar = _
+            factory & " - batch " & batchNo & "/" & totalBatches & _
+            " - " & endIndex & "/" & totalRows & " nhân viên"
+    Next startIndex
+
+    SyncFactoryFile = True
+    GoTo CLEAN_EXIT
+
+FAIL_EXIT:
+    SyncFactoryFile = False
+
+CLEAN_EXIT:
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+
+    Set gDSByID = Nothing
+    Set gDSByName = Nothing
+
+    Application.StatusBar = False
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    Exit Function
+
+EH:
+    SyncFactoryFile = False
+
+    MsgBox _
+        "Lỗi SyncFactoryFile:" & vbCrLf & _
+        Err.Number & " - " & Err.Description, _
+        vbCritical
+
+    Resume CLEAN_EXIT
+End Function
+
+Private Sub BuildDSMaps_(ByVal ws As Worksheet)
+    Dim lastRow As Long
+    lastRow = ws.Cells( _
+        ws.Rows.Count, DS_EMPLOYEE_ID).End(xlUp).Row
+
+    If lastRow < 1 Then Exit Sub
+
+    ' Read A:AH once.
+    Dim data As Variant
+    data = ws.Range( _
+        ws.Cells(1, 1), _
+        ws.Cells(lastRow, DS_POSITION)).Value2
+
+    Dim r As Long
+    Dim employeeId As String
+    Dim fullName As String
+
+    For r = 1 To lastRow
+        employeeId = CleanText_(CStrSafe_(data(r, DS_EMPLOYEE_ID)))
+        fullName = NormalizeName_(CStrSafe_(data(r, DS_NAME)))
+
+        If employeeId <> "" Then
+            Dim rec As Object
+            Set rec = CreateObject("Scripting.Dictionary")
+            rec.CompareMode = vbTextCompare
+
+            rec("CitizenID") = CleanCCCD_(CStrSafe_(data(r, DS_CCCD)))
+            rec("Department") = CleanText_(CStrSafe_(data(r, DS_DEPARTMENT)))
+            rec("Section") = CleanText_(CStrSafe_(data(r, DS_SECTION)))
+            rec("Position") = CleanText_(CStrSafe_(data(r, DS_POSITION)))
+
+            ' Employee ID is the primary key.
+            gDSByID(employeeId) = rec
+
+            ' Name is fallback only.
+            If fullName <> "" Then
+                If Not gDSByName.Exists(fullName) Then
+                    gDSByName.Add fullName, rec
+                End If
+            End If
+        End If
+    Next r
+End Sub
+
+Private Function GetDSRecord_( _
+    ByVal employeeId As String, _
+    ByVal fullName As String) As Object
+
+    Dim keyId As String
+    keyId = CleanText_(employeeId)
+
+    If keyId <> "" Then
+        If Not gDSByID Is Nothing Then
+            If gDSByID.Exists(keyId) Then
+                Set GetDSRecord_ = gDSByID(keyId)
+                Exit Function
+            End If
+        End If
+    End If
+
+    Dim keyName As String
+    keyName = NormalizeName_(fullName)
+
+    If keyName <> "" Then
+        If Not gDSByName Is Nothing Then
+            If gDSByName.Exists(keyName) Then
+                Set GetDSRecord_ = gDSByName(keyName)
+                Exit Function
+            End If
+        End If
+    End If
+
+    Set GetDSRecord_ = Nothing
+End Function
+
+Private Function BuildBatchPayload_( _
+    ByRef data As Variant, _
+    ByRef rowNums() As Long, _
+    ByVal startIndex As Long, _
+    ByVal endIndex As Long, _
+    ByVal factory As String, _
+    ByVal payMonth As String, _
+    ByVal batchId As String, _
+    ByVal batchNo As Long, _
+    ByVal totalBatches As Long) As String
+
+    Dim rowsJson As String
+    rowsJson = "["
 
     Dim first As Boolean
     first = True
 
-    Dim r As Long
-    Dim countRows As Long
+    Dim i As Long, r As Long
 
-    For r = 1 To lastRow
+    For i = startIndex To endIndex
+        r = rowNums(i)
 
-        Dim employeeId As String
-        Dim fullName As String
+        If Not first Then rowsJson = rowsJson & ","
+        first = False
 
-        employeeId = CleanText_(wsSalary.Cells(r, COL_EMPLOYEE_ID).Text)
-        fullName = CleanText_(wsSalary.Cells(r, COL_NAME).Text)
+        rowsJson = rowsJson & BuildEmployeeJson_(data, r)
+    Next i
 
-        ' Ch? l?y dòng nhân viên th?t.
-        ' Các dòng TOTAL/heading thu?ng không có EmployeeID.
-        If employeeId <> "" And fullName <> "" Then
+    rowsJson = rowsJson & "]"
 
-            Dim ds As Object
-            Set ds = Nothing
+    BuildBatchPayload_ = _
+        "{""action"":""syncPayroll""," & _
+        """apiKey"":" & JsonString_(SYNC_API_KEY) & "," & _
+        """factory"":" & JsonString_(factory) & "," & _
+        """payMonth"":" & JsonString_(payMonth) & "," & _
+        """batchId"":" & JsonString_(batchId) & "," & _
+        """batchNo"":" & CStr(batchNo) & "," & _
+        """totalBatches"":" & CStr(totalBatches) & "," & _
+        """isFirstBatch"":" & IIf(batchNo = 1, "true", "false") & "," & _
+        """isLastBatch"":" & IIf(batchNo = totalBatches, "true", "false") & "," & _
+        """rows"":" & rowsJson & "}"
+End Function
 
-            If dsMap.Exists(NormalizeName_(fullName)) Then
-                Set ds = dsMap(NormalizeName_(fullName))
-            End If
+Private Function BuildEmployeeJson_( _
+    ByRef data As Variant, _
+    ByVal r As Long) As String
 
-            Dim citizenId As String
-            Dim department As String
-            Dim section As String
-            Dim position As String
+    Dim employeeId As String
+    Dim fullName As String
 
-            citizenId = ""
-            department = ""
-            section = ""
-            position = ""
+    employeeId = CleanText_(CStrSafe_(data(r, COL_EMPLOYEE_ID)))
+    fullName = CleanText_(CStrSafe_(data(r, COL_NAME)))
 
-            If Not ds Is Nothing Then
-                citizenId = CleanCCCD_(CStr(ds("CitizenID")))
-                department = CleanText_(CStr(ds("Department")))
-                section = CleanText_(CStr(ds("Section")))
-                position = CleanText_(CStr(ds("Position")))
-            End If
+    Dim ds As Object
+    Set ds = GetDSRecord_(employeeId, fullName)
 
-            ' N?u tên không match nhung mã nhân viên có trong DSCNV,
-            ' th? fallback theo EmployeeID.
-            If citizenId = "" Then
-                Dim dsByCode As Object
-                Set dsByCode = FindDSByEmployeeCode_(wsDS, employeeId)
+    Dim citizenId As String
+    Dim department As String
+    Dim section As String
+    Dim position As String
 
-                If Not dsByCode Is Nothing Then
-                    citizenId = CleanCCCD_(CStr(dsByCode("CitizenID")))
-                    department = CleanText_(CStr(dsByCode("Department")))
-                    section = CleanText_(CStr(dsByCode("Section")))
-                    position = CleanText_(CStr(dsByCode("Position")))
-                End If
-            End If
-
-            If Not first Then jsonRows = jsonRows & ","
-            first = False
-
-            jsonRows = jsonRows & "{"
-
-            AddJsonString_ jsonRows, "EmployeeID", employeeId, True
-            AddJsonString_ jsonRows, "FullName", fullName, True
-            AddJsonString_ jsonRows, "CitizenID", citizenId, True
-            AddJsonString_ jsonRows, "Department", department, True
-            AddJsonString_ jsonRows, "Section", section, True
-            AddJsonString_ jsonRows, "Position", position, True
-
-            AddJsonNumber_ jsonRows, "TotalIncome", wsSalary.Cells(r, COL_TOTAL_INCOME).Value2, True
-            AddJsonNumber_ jsonRows, "MonthlySalary", wsSalary.Cells(r, COL_MONTHLY_SALARY).Value2, True
-            AddJsonNumber_ jsonRows, "BasicSalary", wsSalary.Cells(r, COL_BASIC).Value2, True
-            AddJsonNumber_ jsonRows, "WorkingDays", wsSalary.Cells(r, COL_WORKING_DAYS).Value2, True
-            AddJsonNumber_ jsonRows, "HolidayDays", wsSalary.Cells(r, COL_HOLIDAY_DAYS).Value2, True
-            AddJsonNumber_ jsonRows, "PaidLeaveDays", wsSalary.Cells(r, COL_PAID_LEAVE).Value2, True
-            AddJsonNumber_ jsonRows, "UnpaidLeaveDays", wsSalary.Cells(r, COL_UNPAID_LEAVE).Value2, True
-            AddJsonNumber_ jsonRows, "RegionalMinimumLeaveDays", wsSalary.Cells(r, COL_MIN_WAGE_LEAVE).Value2, True
-
-            AddJsonNumber_ jsonRows, "OvertimePay", wsSalary.Cells(r, COL_OT_PAY).Value2, True
-            AddJsonNumber_ jsonRows, "OvertimeHours", wsSalary.Cells(r, COL_OT_HOURS).Value2, True
-            AddJsonNumber_ jsonRows, "RestDayHours", wsSalary.Cells(r, COL_REST_HOURS).Value2, True
-            AddJsonNumber_ jsonRows, "OvertimeRestDayHours", wsSalary.Cells(r, COL_OT_REST_HOURS).Value2, True
-            AddJsonNumber_ jsonRows, "NightRestDayOvertimeHours", wsSalary.Cells(r, COL_NIGHT_REST_OT).Value2, True
-            AddJsonNumber_ jsonRows, "HolidayHours", wsSalary.Cells(r, COL_HOLIDAY_HOURS).Value2, True
-            AddJsonNumber_ jsonRows, "HolidayOvertimeHours", wsSalary.Cells(r, COL_HOLIDAY_OT).Value2, True
-            AddJsonNumber_ jsonRows, "NightHolidayOvertimeHours", wsSalary.Cells(r, COL_NIGHT_HOLIDAY_OT).Value2, True
-            AddJsonNumber_ jsonRows, "NightShiftDays", wsSalary.Cells(r, COL_NIGHT_DAYS).Value2, True
-            AddJsonNumber_ jsonRows, "NightOvertimeHours", wsSalary.Cells(r, COL_NIGHT_OT).Value2, True
-
-            AddJsonNumber_ jsonRows, "OtherMoney", wsSalary.Cells(r, COL_OTHER_MONEY).Value2, True
-            AddJsonNumber_ jsonRows, "Discipline", wsSalary.Cells(r, COL_DISCIPLINE).Value2, True
-            AddJsonNumber_ jsonRows, "Loyalty2Years", wsSalary.Cells(r, COL_LOYALTY2).Value2, True
-            AddJsonNumber_ jsonRows, "Loyalty5Years", wsSalary.Cells(r, COL_LOYALTY5).Value2, True
-            AddJsonNumber_ jsonRows, "Loyalty10Years", wsSalary.Cells(r, COL_LOYALTY10).Value2, True
-            AddJsonNumber_ jsonRows, "Housing", wsSalary.Cells(r, COL_HOUSING).Value2, True
-            AddJsonNumber_ jsonRows, "Transportation", wsSalary.Cells(r, COL_TRANSPORT).Value2, True
-            AddJsonNumber_ jsonRows, "AttendanceBonus", wsSalary.Cells(r, COL_ATTENDANCE).Value2, True
-            AddJsonNumber_ jsonRows, "SalesCommissionBonus", wsSalary.Cells(r, COL_COMMISSION).Value2, True
-            AddJsonNumber_ jsonRows, "SeveranceUnusedLeave", wsSalary.Cells(r, COL_SEVERANCE).Value2, True
-
-            AddJsonNumber_ jsonRows, "SocialInsurance", wsSalary.Cells(r, COL_SOCIAL).Value2, True
-            AddJsonNumber_ jsonRows, "HealthInsurance", wsSalary.Cells(r, COL_HEALTH).Value2, True
-            AddJsonNumber_ jsonRows, "UnemploymentInsurance", wsSalary.Cells(r, COL_UNEMPLOYMENT).Value2, True
-            AddJsonNumber_ jsonRows, "PersonalIncomeTax", wsSalary.Cells(r, COL_TAX).Value2, True
-            AddJsonNumber_ jsonRows, "Advance", wsSalary.Cells(r, COL_ADVANCE).Value2, True
-
-            ' Kh?u tr? khác = AJ
-            AddJsonNumber_ jsonRows, "OtherDeductions", wsSalary.Cells(r, COL_OTHER_DEDUCT).Value2, True
-
-            ' AW = NetPay
-            AddJsonNumber_ jsonRows, "NetPay", wsSalary.Cells(r, COL_NET_PAY).Value2, False
-
-            jsonRows = jsonRows & "}"
-
-            countRows = countRows + 1
-
-        End If
-
-    Next r
-
-    jsonRows = jsonRows & "]"
-
-    Dim payload As String
-
-    payload = "{"
-    payload = payload & """action"":""syncPayroll"","
-    payload = payload & """apiKey"":" & JsonString_(SYNC_API_KEY) & ","
-    payload = payload & """factory"":" & JsonString_(factory) & ","
-    payload = payload & """payMonth"":" & JsonString_(payMonth) & ","
-    payload = payload & """rows"":" & jsonRows
-    payload = payload & "}"
-
-    Dim response As String
-    response = HttpPostJson_(GAS_URL, payload)
-
-    wb.Close SaveChanges:=False
-    Set wb = Nothing
-
-    Application.ScreenUpdating = True
-    Application.DisplayAlerts = True
-
-    If InStr(1, response, """ok"":true", vbTextCompare) = 0 Then
-        MsgBox _
-            "Ð?ng b? " & factory & " th?t b?i." & vbCrLf & _
-            "S? dòng t?o: " & countRows & vbCrLf & _
-            response, vbCritical
-    Else
-        MsgBox _
-            "Ð?ng b? " & factory & " thành công." & vbCrLf & _
-            "K?: " & payMonth & vbCrLf & _
-            "S? nhân viên: " & countRows, vbInformation
+    If Not ds Is Nothing Then
+        citizenId = CleanCCCD_(CStrSafe_(ds("CitizenID")))
+        department = CleanText_(CStrSafe_(ds("Department")))
+        section = CleanText_(CStrSafe_(ds("Section")))
+        position = CleanText_(CStrSafe_(ds("Position")))
     End If
 
-    Exit Sub
+    Dim j As String
+    j = "{"
 
-EH:
-    Application.ScreenUpdating = True
-    Application.DisplayAlerts = True
+    AddJsonString_ j, "EmployeeID", employeeId, True
+    AddJsonString_ j, "FullName", fullName, True
+    AddJsonString_ j, "CitizenID", citizenId, True
+    AddJsonString_ j, "Department", department, True
+    AddJsonString_ j, "Section", section, True
+    AddJsonString_ j, "Position", position, True
 
-    On Error Resume Next
-    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    AddJsonNumber_ j, "TotalIncome", data(r, COL_TOTAL_INCOME), True
+    AddJsonNumber_ j, "MonthlySalary", data(r, COL_MONTHLY_SALARY), True
+    AddJsonNumber_ j, "BasicSalary", data(r, COL_BASIC), True
+    AddJsonNumber_ j, "WorkingDays", data(r, COL_WORKING_DAYS), True
+    AddJsonNumber_ j, "HolidayDays", data(r, COL_HOLIDAY_DAYS), True
+    AddJsonNumber_ j, "PaidLeaveDays", data(r, COL_PAID_LEAVE), True
+    AddJsonNumber_ j, "UnpaidLeaveDays", data(r, COL_UNPAID_LEAVE), True
+    AddJsonNumber_ j, "RegionalMinimumLeaveDays", data(r, COL_MIN_WAGE_LEAVE), True
 
-    MsgBox _
-        "L?i SyncFactoryFile:" & vbCrLf & _
-        Err.Number & " - " & Err.Description, vbCritical
+    AddJsonNumber_ j, "OvertimePay", data(r, COL_OT_PAY), True
+    AddJsonNumber_ j, "OvertimeHours", data(r, COL_OT_HOURS), True
+    AddJsonNumber_ j, "RestDayHours", data(r, COL_REST_HOURS), True
+    AddJsonNumber_ j, "OvertimeRestDayHours", data(r, COL_OT_REST_HOURS), True
+    AddJsonNumber_ j, "NightRestDayOvertimeHours", data(r, COL_NIGHT_REST_OT), True
+    AddJsonNumber_ j, "HolidayHours", data(r, COL_HOLIDAY_HOURS), True
+    AddJsonNumber_ j, "HolidayOvertimeHours", data(r, COL_HOLIDAY_OT), True
+    AddJsonNumber_ j, "NightHolidayOvertimeHours", data(r, COL_NIGHT_HOLIDAY_OT), True
+    AddJsonNumber_ j, "NightShiftDays", data(r, COL_NIGHT_DAYS), True
+    AddJsonNumber_ j, "NightOvertimeHours", data(r, COL_NIGHT_OT), True
 
-End Sub
+    AddJsonNumber_ j, "OtherMoney", data(r, COL_OTHER_MONEY), True
+    AddJsonNumber_ j, "Discipline", data(r, COL_DISCIPLINE), True
+    AddJsonNumber_ j, "Loyalty2Years", data(r, COL_LOYALTY2), True
+    AddJsonNumber_ j, "Loyalty5Years", data(r, COL_LOYALTY5), True
+    AddJsonNumber_ j, "Loyalty10Years", data(r, COL_LOYALTY10), True
+    AddJsonNumber_ j, "Housing", data(r, COL_HOUSING), True
+    AddJsonNumber_ j, "Transportation", data(r, COL_TRANSPORT), True
+    AddJsonNumber_ j, "AttendanceBonus", data(r, COL_ATTENDANCE), True
+    AddJsonNumber_ j, "SalesCommissionBonus", data(r, COL_COMMISSION), True
+    AddJsonNumber_ j, "SeveranceUnusedLeave", data(r, COL_SEVERANCE), True
 
-' ============================================================
-' DSCNV MAP
-' ============================================================
+    AddJsonNumber_ j, "SocialInsurance", data(r, COL_SOCIAL), True
+    AddJsonNumber_ j, "HealthInsurance", data(r, COL_HEALTH), True
+    AddJsonNumber_ j, "UnemploymentInsurance", data(r, COL_UNEMPLOYMENT), True
+    AddJsonNumber_ j, "PersonalIncomeTax", data(r, COL_TAX), True
+    AddJsonNumber_ j, "Advance", data(r, COL_ADVANCE), True
+    AddJsonNumber_ j, "OtherDeductions", data(r, COL_OTHER_DEDUCT), True
 
-Private Function BuildDSMap_(ws As Worksheet) As Object
+    AddJsonNumber_ j, "NetPay", data(r, COL_NET_PAY), False
 
-    Dim d As Object
-    Set d = CreateObject("Scripting.Dictionary")
-
-    d.CompareMode = vbTextCompare
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, DS_NAME).End(xlUp).Row
-
-    Dim r As Long
-
-    For r = 1 To lastRow
-
-        Dim fullName As String
-        fullName = CleanText_(ws.Cells(r, DS_NAME).Text)
-
-        If fullName <> "" Then
-
-            Dim employeeCode As String
-            employeeCode = CleanText_(ws.Cells(r, 4).Text)
-
-            If employeeCode <> "" Then
-
-                Dim x As Object
-                Set x = CreateObject("Scripting.Dictionary")
-
-                x("EmployeeID") = employeeCode
-
-                ' H là CCCD, ph?i l?y .Text d? gi? s? 0 d?u.
-                x("CitizenID") = CleanCCCD_(ws.Cells(r, DS_CCCD).Text)
-
-                ' Theo file th?c t? dã upload:
-                x("Department") = CleanText_(ws.Cells(r, DS_DEPARTMENT_EN).Text)
-
-                ' Section = b? ph?n VN
-                x("Section") = CleanText_(ws.Cells(r, DS_DEPARTMENT_VN).Text)
-
-                ' Position = ch?c v? VN
-                x("Position") = CleanText_(ws.Cells(r, DS_POSITION_VN).Text)
-
-                d(NormalizeName_(fullName)) = x
-
-            End If
-
-        End If
-
-    Next r
-
-    Set BuildDSMap_ = d
-
+    j = j & "}"
+    BuildEmployeeJson_ = j
 End Function
-
-Private Function FindDSByEmployeeCode_( _
-    ws As Worksheet, _
-    ByVal employeeId As String) As Object
-
-    Dim lastRow As Long
-    lastRow = ws.Cells(ws.Rows.Count, 4).End(xlUp).Row
-
-    Dim r As Long
-
-    For r = 1 To lastRow
-
-        If CleanText_(ws.Cells(r, 4).Text) = employeeId Then
-
-            Dim x As Object
-            Set x = CreateObject("Scripting.Dictionary")
-
-            x("EmployeeID") = employeeId
-            x("CitizenID") = CleanCCCD_(ws.Cells(r, DS_CCCD).Text)
-            x("Department") = CleanText_(ws.Cells(r, DS_DEPARTMENT_EN).Text)
-            x("Section") = CleanText_(ws.Cells(r, DS_DEPARTMENT_VN).Text)
-            x("Position") = CleanText_(ws.Cells(r, DS_POSITION_VN).Text)
-
-            Set FindDSByEmployeeCode_ = x
-            Exit Function
-
-        End If
-
-    Next r
-
-    Set FindDSByEmployeeCode_ = Nothing
-
-End Function
-
-' ============================================================
-' JSON
-' ============================================================
 
 Private Sub AddJsonString_( _
     ByRef json As String, _
@@ -494,10 +536,10 @@ Private Sub AddJsonString_( _
     ByVal value As String, _
     ByVal commaAfter As Boolean)
 
-    json = json & JsonString_(key) & ":" & JsonString_(value)
+    json = json & _
+        JsonString_(key) & ":" & JsonString_(value)
 
     If commaAfter Then json = json & ","
-
 End Sub
 
 Private Sub AddJsonNumber_( _
@@ -506,154 +548,171 @@ Private Sub AddJsonNumber_( _
     ByVal value As Variant, _
     ByVal commaAfter As Boolean)
 
-    json = json & JsonString_(key) & ":" & JsonNumber_(value)
+    json = json & _
+        JsonString_(key) & ":" & JsonNumber_(value)
 
     If commaAfter Then json = json & ","
-
 End Sub
 
-Private Function JsonString_(ByVal value As String) As String
+Private Function JsonString_(ByVal s As String) As String
+    s = Replace(s, "\", "\\")
+    s = Replace(s, """", "\"""")
+    s = Replace(s, vbCrLf, "\n")
+    s = Replace(s, vbCr, "\n")
+    s = Replace(s, vbLf, "\n")
+    s = Replace(s, vbTab, "\t")
 
-    value = Replace(value, "\", "\\")
-    value = Replace(value, """", "\""")
-    value = Replace(value, vbCr, "\r")
-    value = Replace(value, vbLf, "\n")
-    value = Replace(value, vbTab, "\t")
-
-    JsonString_ = """" & value & """"
-
+    JsonString_ = """" & s & """"
 End Function
 
-Private Function JsonNumber_(ByVal value As Variant) As String
-
-    If IsError(value) Then
+Private Function JsonNumber_(ByVal v As Variant) As String
+    If IsError(v) Or IsEmpty(v) Or IsNull(v) Then
         JsonNumber_ = "0"
         Exit Function
     End If
 
-    If IsEmpty(value) Then
+    If Not IsNumeric(v) Then
         JsonNumber_ = "0"
         Exit Function
     End If
 
-    If IsNumeric(value) Then
+    Dim s As String
+    s = Format$(CDbl(v), "0.###############")
 
-        Dim d As Double
-        d = CDbl(value)
+    ' JSON requires dot as decimal separator.
+    s = Replace( _
+        s, _
+        Application.International(xlDecimalSeparator), _
+        ".")
 
-        If d = 0 Then
-            JsonNumber_ = "0"
-        Else
-            ' VBA Decimal separator ph? thu?c Windows.
-            JsonNumber_ = Replace( _
-                Format$(d, "0.############"), _
-                Application.International(xlDecimalSeparator), _
-                ".")
+    JsonNumber_ = s
+End Function
+
+Private Function PostWithRetry_( _
+    ByVal payload As String, _
+    ByRef responseText As String) As Boolean
+
+    Dim attempt As Long
+    Dim waitSeconds As Long
+
+    For attempt = 1 To MAX_RETRY
+        responseText = HttpPostJson_(payload)
+
+        If ResponseOK_(responseText) Then
+            PostWithRetry_ = True
+            Exit Function
         End If
 
-    Else
-        JsonNumber_ = "0"
-    End If
+        waitSeconds = attempt * 2
+        Application.StatusBar = _
+            "API lỗi - thử lại " & attempt & "/" & MAX_RETRY & _
+            " sau " & waitSeconds & " giây..."
 
+        SleepSeconds_ waitSeconds
+    Next attempt
+
+    PostWithRetry_ = False
 End Function
 
-' ============================================================
-' HTTP
-' ============================================================
+Private Function ResponseOK_(ByVal responseText As String) As Boolean
+    ResponseOK_ = _
+        InStr(1, responseText, """ok"":true", vbTextCompare) > 0
+End Function
 
-Private Function HttpPostJson_( _
-    ByVal url As String, _
-    ByVal body As String) As String
+Private Function HttpPostJson_(ByVal payload As String) As String
+    On Error GoTo EH
 
     Dim http As Object
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
 
-    http.Open "POST", url, False
+    http.Open "POST", GAS_URL, False
+
+    http.SetTimeouts _
+        30000, _
+        30000, _
+        30000, _
+        120000
+
     http.SetRequestHeader _
         "Content-Type", _
         "text/plain;charset=utf-8"
 
-    http.SetTimeouts 30000, 30000, 30000, 120000
+    http.Send payload
 
-    http.Send body
-
-    If http.Status < 200 Or http.Status >= 300 Then
-
-        HttpPostJson_ = _
-            "HTTP " & http.Status & vbCrLf & _
-            http.responseText
-
-    Else
-
-        HttpPostJson_ = http.responseText
-
-    End If
-
-End Function
-
-' ============================================================
-' DATE / FILE
-' ============================================================
-
-Private Function PreviousPayrollMonth_() As String
-
-    Dim d As Date
-
-    d = DateAdd("m", -1, Date)
-
-    PreviousPayrollMonth_ = Format$(d, "mm-yyyy")
-
-End Function
-
-Private Function FileExists_(ByVal path As String) As Boolean
-
-    On Error GoTo EH
-
-    FileExists_ = (Len(Dir$(path)) > 0)
+    HttpPostJson_ = _
+        "HTTP " & http.Status & ": " & http.ResponseText
 
     Exit Function
 
 EH:
-    FileExists_ = False
-
+    HttpPostJson_ = _
+        "HTTP ERROR " & Err.Number & ": " & Err.Description
 End Function
 
-' ============================================================
-' TEXT
-' ============================================================
+Private Function CountSalaryRows_( _
+    ByRef data As Variant, _
+    ByVal lastRow As Long) As Long
 
-Private Function CleanText_(ByVal value As String) As String
+    Dim r As Long
+    Dim count As Long
 
-    value = Replace(value, ChrW(160), " ")
-    value = Replace(value, vbCr, " ")
-    value = Replace(value, vbLf, " ")
+    For r = 1 To lastRow
+        If CleanText_(CStrSafe_(data(r, COL_EMPLOYEE_ID))) <> "" And _
+           CleanText_(CStrSafe_(data(r, COL_NAME))) <> "" Then
+            count = count + 1
+        End If
+    Next r
 
-    CleanText_ = Trim$(value)
-
+    CountSalaryRows_ = count
 End Function
 
-Private Function CleanCCCD_(ByVal value As String) As String
-
-    value = Trim$(value)
-
-    ' Excel có th? hi?n th? d?u apostrophe khi nh?p text.
-    If Left$(value, 1) = "'" Then
-        value = Mid$(value, 2)
+Private Function CStrSafe_(ByVal v As Variant) As String
+    If IsError(v) Or IsNull(v) Or IsEmpty(v) Then
+        CStrSafe_ = ""
+    Else
+        CStrSafe_ = CStr(v)
     End If
-
-    CleanCCCD_ = Trim$(value)
-
 End Function
 
-Private Function NormalizeName_(ByVal value As String) As String
+Private Function CleanText_(ByVal s As String) As String
+    s = Trim$(s)
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
 
-    value = CleanText_(value)
-
-    Do While InStr(value, "  ") > 0
-        value = Replace(value, "  ", " ")
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
     Loop
 
-    NormalizeName_ = UCase$(value)
-
+    CleanText_ = s
 End Function
 
+Private Function CleanCCCD_(ByVal s As String) As String
+    s = CleanText_(s)
+
+    Do While Left$(s, 1) = "'"
+        s = Mid$(s, 2)
+    Loop
+
+    CleanCCCD_ = s
+End Function
+
+Private Function NormalizeName_(ByVal s As String) As String
+    NormalizeName_ = UCase$(CleanText_(s))
+End Function
+
+Private Function PreviousPayrollMonth_() As String
+    PreviousPayrollMonth_ = Format$(DateAdd("m", -1, Date), "mm-yyyy")
+End Function
+
+Private Function FileExists_(ByVal filePath As String) As Boolean
+    FileExists_ = (Len(Dir$(filePath, vbNormal Or vbHidden Or vbSystem Or vbReadOnly)) > 0)
+End Function
+
+Private Sub SleepSeconds_(ByVal seconds As Long)
+    Dim endTime As Date
+    endTime = DateAdd("s", seconds, Now)
+
+    Do While Now < endTime
+        DoEvents
+    Loop
+End Sub

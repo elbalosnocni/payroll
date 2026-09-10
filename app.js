@@ -1,357 +1,494 @@
 const API_URL =
-  'https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec';
+  "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec";
 
 const state = {
-  token: null,
+  token: "",
   user: null,
-  adminToken: null
+  adminToken: ""
 };
+
+document.addEventListener("DOMContentLoaded", () => {
+  buildMonthList();
+  bindEvents();
+});
 
 const $ = id => document.getElementById(id);
 
-function setMessage(id, text, error=false){
-  const el = $(id);
-  el.textContent = text || '';
-  el.style.color = error ? '#c62828' : '#237a3b';
+function bindEvents() {
+  $("loginBtn").addEventListener("click", login);
+  $("changeBtn").addEventListener("click", changePassword);
+  $("loadBtn").addEventListener("click", loadPayslip);
+  $("logoutBtn").addEventListener("click", logout);
+  $("adminLoginBtn").addEventListener("click", adminLogin);
+  $("resetBtn").addEventListener("click", adminReset);
+
+  ["username","password"].forEach(id =>
+    $(id).addEventListener("keydown", e => {
+      if (e.key === "Enter") login();
+    })
+  );
+
+  ["newPassword","newPassword2"].forEach(id =>
+    $(id).addEventListener("keydown", e => {
+      if (e.key === "Enter") changePassword();
+    })
+  );
 }
 
-async function api(body){
-  const response = await fetch(API_URL,{
-    method:'POST',
-    headers:{
-      'Content-Type':'text/plain;charset=utf-8'
-    },
-    body:JSON.stringify(body)
-  });
+async function api(payload) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
 
-  if(!response.ok){
-    throw new Error('HTTP '+response.status);
-  }
-
-  return response.json();
-}
-
-function money(value){
-  return Number(value || 0).toLocaleString('vi-VN') + ' ₫';
-}
-
-function qty(value){
-  return Number(value || 0).toLocaleString('vi-VN',{
-    minimumFractionDigits:0,
-    maximumFractionDigits:2
-  });
-}
-
-function salaryRow(label,value,moneyMode=true){
-  return `
-    <div class="salary-row">
-      <span>${escapeHtml(label)}</span>
-      <span class="${moneyMode?'money':''}">
-        ${moneyMode ? money(value) : qty(value)}
-      </span>
-    </div>`;
-}
-
-function escapeHtml(value){
-  return String(value ?? '')
-    .replaceAll('&','&amp;')
-    .replaceAll('<','&lt;')
-    .replaceAll('>','&gt;')
-    .replaceAll('"','&quot;')
-    .replaceAll("'","&#039;");
-}
-
-/*
- * Tháng hiển thị mặc định = tháng trước.
- * Ví dụ 10/09/2026 -> 08-2026.
- */
-function buildMonthList(){
-  const list=[];
-  const d=new Date();
-
-  for(let i=0;i<12;i++){
-    const x=new Date(d.getFullYear(),d.getMonth()-1-i,1);
-    const value =
-      String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear();
-    list.push(value);
-  }
-
-  $('monthSelect').innerHTML =
-    list.map(x=>`<option value="${x}">${x}</option>`).join('');
-}
-
-buildMonthList();
-
-$('loginBtn').onclick = async () => {
-  setMessage('loginMsg','Đang kiểm tra...');
-
-  try{
-    const result = await api({
-      action:'login',
-      username:$('username').value.trim(),
-      password:$('password').value
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: {"Content-Type": "text/plain;charset=utf-8"},
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
 
-    if(!result.ok){
-      setMessage('loginMsg','Số Căn cước hoặc mật khẩu không đúng.',true);
-      return;
+    let data;
+    try {
+      data = await res.json();
+    } catch (_) {
+      throw new Error("SERVER_INVALID_RESPONSE");
     }
 
-    state.token=result.token;
-    state.user=result.user;
-
-    $('loginView').classList.add('hidden');
-    $('logoutBtn').classList.remove('hidden');
-
-    $('fullName').textContent=result.user.fullName;
-    $('employeeMeta').textContent =
-      `Mã NV: ${result.user.employeeId} | CCCD: ${result.user.username}`;
-
-    if(result.mustChangePassword){
-      $('changeView').classList.remove('hidden');
-    }else{
-      $('payView').classList.remove('hidden');
-      await loadPayslip();
+    if (!res.ok) throw new Error(data.error || "HTTP_ERROR");
+    return data;
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("API_TIMEOUT");
     }
-
-  }catch(e){
-    setMessage('loginMsg','Không kết nối được máy chủ.',true);
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-};
+}
 
-$('changeBtn').onclick = async () => {
-  const p1=$('newPassword').value;
-  const p2=$('newPassword2').value;
+async function login() {
+  clearMessage("loginMsg");
 
-  if(p1.length<8){
-    setMessage('changeMsg','Mật khẩu mới phải có ít nhất 8 ký tự.',true);
+  const username = $("username").value.trim();
+  const password = $("password").value;
+
+  if (!username || !password) {
+    showMessage("loginMsg","Vui lòng nhập Căn cước và mật khẩu.","error");
     return;
   }
 
-  if(p1!==p2){
-    setMessage('changeMsg','Hai mật khẩu không giống nhau.',true);
-    return;
-  }
+  setBusy("loginBtn",true,"Đang đăng nhập...");
 
-  try{
-    const result=await api({
-      action:'changePassword',
-      token:state.token,
-      newPassword:p1
+  try {
+    const data = await api({
+      action:"login",
+      username,
+      password
     });
 
-    if(!result.ok){
-      setMessage('changeMsg','Không thể đổi mật khẩu.',true);
+    if (!data.ok) {
+      showMessage("loginMsg",friendlyError(data.error),"error");
       return;
     }
 
-    setMessage('changeMsg','Đổi mật khẩu thành công.');
+    state.token = data.token;
+    state.user = data.user;
 
-    setTimeout(async()=>{
-      $('changeView').classList.add('hidden');
-      $('payView').classList.remove('hidden');
+    renderUser();
+
+    $("logoutBtn").classList.remove("hidden");
+
+    if (data.user.mustChangePassword) {
+      showOnly("changeView");
+      $("newPassword").value = "";
+      $("newPassword2").value = "";
+      $("newPassword").focus();
+    } else {
+      showOnly("payView");
       await loadPayslip();
-    },500);
-
-  }catch(e){
-    setMessage('changeMsg','Không kết nối được máy chủ.',true);
-  }
-};
-
-$('loadBtn').onclick=loadPayslip;
-
-async function loadPayslip(){
-  setMessage('payMsg','Đang tải phiếu lương...');
-
-  try{
-    const result=await api({
-      action:'getPayslip',
-      token:state.token,
-      month:$('monthSelect').value
-    });
-
-    if(!result.ok){
-      $('payslip').classList.add('hidden');
-      setMessage(
-        'payMsg',
-        'Không tìm thấy phiếu lương của tháng đã chọn.',
-        true
-      );
-      return;
     }
-
-    renderPayslip(result.payslip);
-    setMessage('payMsg','');
-
-  }catch(e){
-    setMessage('payMsg','Không kết nối được máy chủ.',true);
+  } catch (err) {
+    showMessage("loginMsg",friendlyError(err.message),"error");
+  } finally {
+    setBusy("loginBtn",false,"Đăng nhập");
   }
 }
 
-function renderPayslip(p){
-  const e=p.employee;
-  const i=p.income;
-  const d=p.deductions;
+async function changePassword() {
+  clearMessage("changeMsg");
 
-  $('payslip').innerHTML=`
-    <h2>Phiếu lương tháng ${escapeHtml(p.month)}</h2>
-    <div class="muted">
-      Xưởng: ${escapeHtml(p.factory)}
-      &nbsp; | &nbsp;
-      UpdatedAt: ${escapeHtml(p.updatedAt)}
+  const p1 = $("newPassword").value;
+  const p2 = $("newPassword2").value;
+
+  if (p1.length < 8) {
+    showMessage("changeMsg","Mật khẩu mới phải có ít nhất 8 ký tự.","error");
+    return;
+  }
+
+  if (p1 !== p2) {
+    showMessage("changeMsg","Hai mật khẩu không giống nhau.","error");
+    return;
+  }
+
+  setBusy("changeBtn",true,"Đang đổi mật khẩu...");
+
+  try {
+    const data = await api({
+      action:"changePassword",
+      token:state.token,
+      newPassword:p1,
+      newPassword2:p2
+    });
+
+    if (!data.ok) {
+      if (data.error === "SESSION_EXPIRED") {
+        sessionExpired();
+        return;
+      }
+
+      showMessage("changeMsg",friendlyError(data.error),"error");
+      return;
+    }
+
+    state.user = data.user;
+    renderUser();
+
+    showMessage("changeMsg","Đổi mật khẩu thành công.","success");
+    showOnly("payView");
+    await loadPayslip();
+  } catch (err) {
+    showMessage("changeMsg",friendlyError(err.message),"error");
+  } finally {
+    setBusy("changeBtn",false,"Đổi mật khẩu");
+  }
+}
+
+async function loadPayslip() {
+  if (!state.token) return;
+
+  clearMessage("payMsg");
+  $("payslip").classList.add("hidden");
+
+  const month = $("monthSelect").value;
+  if (!month) return;
+
+  setBusy("loadBtn",true,"Đang tải...");
+
+  try {
+    const data = await api({
+      action:"getPayslip",
+      token:state.token,
+      payMonth:month
+    });
+
+    if (!data.ok) {
+      if (data.error === "SESSION_EXPIRED") {
+        sessionExpired();
+        return;
+      }
+
+      if (data.error === "PASSWORD_CHANGE_REQUIRED") {
+        showOnly("changeView");
+        return;
+      }
+
+      showMessage("payMsg",friendlyError(data.error),"error");
+      return;
+    }
+
+    renderPayslip(data);
+  } catch (err) {
+    showMessage("payMsg",friendlyError(err.message),"error");
+  } finally {
+    setBusy("loadBtn",false,"Xem phiếu");
+  }
+}
+
+function renderUser() {
+  if (!state.user) return;
+
+  $("fullName").textContent = state.user.fullName || "";
+  $("employeeMeta").textContent =
+    `Mã NV: ${state.user.employeeId || ""} • CCCD: ${state.user.username || ""}`;
+}
+
+function renderPayslip(data) {
+  const e = data.employee || {};
+  const p = data.payslip || {};
+
+  const money = v => {
+    const n = Number(v);
+    return Number.isFinite(n)
+      ? n.toLocaleString("vi-VN") + " ₫"
+      : "0 ₫";
+  };
+
+  const qty = v => {
+    const n = Number(v);
+    return Number.isFinite(n)
+      ? n.toLocaleString("vi-VN",{maximumFractionDigits:2})
+      : "0";
+  };
+
+  const esc = v => String(v ?? "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+
+  const rows = [
+    ["Tổng thu nhập","TotalIncome","money"],
+    ["Lương tháng","MonthlySalary","money"],
+    ["Lương cơ bản","BasicSalary","money"],
+    ["Ngày công","WorkingDays","qty"],
+    ["Ngày lễ","HolidayDays","qty"],
+    ["Nghỉ phép hưởng lương","PaidLeaveDays","qty"],
+    ["Nghỉ không lương","UnpaidLeaveDays","qty"],
+    ["Ngày nghỉ tối thiểu vùng","RegionalMinimumLeaveDays","qty"],
+    ["Tiền tăng ca","OvertimePay","money"],
+    ["Giờ tăng ca","OvertimeHours","qty"],
+    ["Giờ ngày nghỉ","RestDayHours","qty"],
+    ["Giờ tăng ca ngày nghỉ","OvertimeRestDayHours","qty"],
+    ["Giờ tăng ca ban đêm ngày nghỉ","NightRestDayOvertimeHours","qty"],
+    ["Giờ ngày lễ","HolidayHours","qty"],
+    ["Giờ tăng ca ngày lễ","HolidayOvertimeHours","qty"],
+    ["Giờ tăng ca ban đêm ngày lễ","NightHolidayOvertimeHours","qty"],
+    ["Ngày làm ca đêm","NightShiftDays","qty"],
+    ["Giờ tăng ca ban đêm","NightOvertimeHours","qty"],
+    ["Khoản khác","OtherMoney","money"],
+    ["Kỷ luật","Discipline","money"],
+    ["Thâm niên 2 năm","Loyalty2Years","money"],
+    ["Thâm niên 5 năm","Loyalty5Years","money"],
+    ["Thâm niên 10 năm","Loyalty10Years","money"],
+    ["Nhà ở","Housing","money"],
+    ["Đi lại","Transportation","money"],
+    ["Chuyên cần","AttendanceBonus","money"],
+    ["Hoa hồng bán hàng","SalesCommissionBonus","money"],
+    ["Trợ cấp nghỉ phép chưa sử dụng","SeveranceUnusedLeave","money"],
+    ["BHXH","SocialInsurance","money"],
+    ["BHYT","HealthInsurance","money"],
+    ["BHTN","UnemploymentInsurance","money"],
+    ["Thuế TNCN","PersonalIncomeTax","money"],
+    ["Tạm ứng","Advance","money"],
+    ["Khấu trừ khác","OtherDeductions","money"],
+    ["Thực nhận","NetPay","money"]
+  ];
+
+  const body = rows.map(r => `
+    <tr>
+      <td>${esc(r[0])}</td>
+      <td class="${r[1]==="NetPay"?"net-pay":""}">
+        ${r[2]==="money" ? money(p[r[1]]) : qty(p[r[1]])}
+      </td>
+    </tr>
+  `).join("");
+
+  $("payslip").innerHTML = `
+    <div class="payslip-head">
+      <h2>Phiếu lương ${esc(data.payMonth)}</h2>
+      <div class="employee-card">
+        <div><b>Họ tên:</b> ${esc(e.fullName)}</div>
+        <div><b>Mã NV:</b> ${esc(e.employeeId)}</div>
+        <div><b>CCCD:</b> ${esc(e.citizenId)}</div>
+        <div><b>Phòng ban:</b> ${esc(e.department)}</div>
+        <div><b>Bộ phận:</b> ${esc(e.section)}</div>
+        <div><b>Chức vụ:</b> ${esc(e.position)}</div>
+      </div>
     </div>
-
-    <div class="section-title">Thông tin nhân viên</div>
-
-    <div class="info-grid">
-      <div class="info">
-        <b>Họ tên</b><br>${escapeHtml(e.fullName)}
-      </div>
-      <div class="info">
-        <b>Mã nhân viên</b><br>${escapeHtml(e.employeeId)}
-      </div>
-      <div class="info">
-        <b>Số Căn cước</b><br>${escapeHtml(e.citizenId)}
-      </div>
-      <div class="info">
-        <b>Phòng ban</b><br>${escapeHtml(e.department)}
-      </div>
-      <div class="info">
-        <b>Bộ phận</b><br>${escapeHtml(e.section)}
-      </div>
-      <div class="info">
-        <b>Chức vụ</b><br>${escapeHtml(e.position)}
-      </div>
-    </div>
-
-    <div class="section-title">A. Các khoản thu nhập</div>
-
-    ${salaryRow('Tổng các khoản thu nhập',i.totalIncome)}
-
-    <p><b>1. Lương tháng</b></p>
-
-    ${salaryRow('Lương tháng',i.monthlySalary)}
-    ${salaryRow('Lương cơ bản',i.basicSalary)}
-    ${salaryRow('Số ngày làm việc',i.workingDays,false)}
-    ${salaryRow('Số ngày lễ',i.holidayDays,false)}
-    ${salaryRow('Số ngày nghỉ hưởng lương',i.paidLeaveDays,false)}
-    ${salaryRow('Số ngày nghỉ không hưởng lương',i.unpaidLeaveDays,false)}
-    ${salaryRow('Số ngày nghỉ hưởng lương tối thiểu vùng',i.regionalMinimumLeaveDays,false)}
-
-    <p><b>2. Lương làm ngoài giờ, ngày nghỉ, ca đêm</b></p>
-
-    ${salaryRow('Tiền làm ngoài giờ / ngày nghỉ / ca đêm',i.overtimePay)}
-    ${salaryRow('Số giờ làm ngoài giờ',i.overtimeHours,false)}
-    ${salaryRow('Số giờ làm ngày nghỉ',i.restDayHours,false)}
-    ${salaryRow('Số giờ làm ngoài giờ ngày nghỉ',i.overtimeRestDayHours,false)}
-    ${salaryRow('Số giờ tăng ca đêm ngày nghỉ',i.nightRestDayOvertimeHours,false)}
-    ${salaryRow('Số giờ làm vào ngày lễ',i.holidayHours,false)}
-    ${salaryRow('Số giờ làm ngoài giờ ngày lễ',i.holidayOvertimeHours,false)}
-    ${salaryRow('Số giờ tăng ca đêm ngày lễ',i.nightHolidayOvertimeHours,false)}
-    ${salaryRow('Số ngày làm ca đêm',i.nightShiftDays,false)}
-    ${salaryRow('Số giờ tăng ca đêm',i.nightOvertimeHours,false)}
-
-    <p><b>3. Phụ cấp, trợ cấp, hỗ trợ, bổ sung</b></p>
-
-    ${salaryRow('Tiền khác (công tác phí, cơm)',i.otherMoney)}
-    ${salaryRow('Tiền kỷ luật',i.discipline)}
-    ${salaryRow('Tiền gắn bó 2 năm',i.loyalty2Years)}
-    ${salaryRow('Tiền gắn bó 5 năm',i.loyalty5Years)}
-    ${salaryRow('Tiền gắn bó 10 năm',i.loyalty10Years)}
-    ${salaryRow('Tiền nhà ở',i.housing)}
-    ${salaryRow('Tiền đi lại',i.transportation)}
-    ${salaryRow('Tiền thưởng chuyên cần',i.attendanceBonus)}
-    ${salaryRow('Hoa hồng bán hàng & thưởng vượt định mức',i.salesCommissionBonus)}
-    ${salaryRow('Trợ cấp thôi việc & phép năm còn lại',i.severanceUnusedLeave)}
-
-    <div class="section-title">B. Các khoản khấu trừ</div>
-
-    ${salaryRow('BHXH',d.socialInsurance)}
-    ${salaryRow('BHYT',d.healthInsurance)}
-    ${salaryRow('BHTN',d.unemploymentInsurance)}
-    ${salaryRow('Thuế thu nhập',d.personalIncomeTax)}
-    ${salaryRow('Tạm ứng',d.advance)}
-    ${salaryRow('Các khoản khấu trừ khác',d.otherDeductions)}
-
-    <div class="section-title">C. Lương thực lĩnh</div>
-
-    <div class="salary-row net">
-      <span>LƯƠNG THỰC LĨNH</span>
-      <span>${money(p.netPay)}</span>
+    <div class="table-wrap">
+      <table class="salary-table">
+        <thead><tr><th>Nội dung</th><th>Giá trị</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
     </div>
   `;
 
-  $('payslip').classList.remove('hidden');
+  $("payslip").classList.remove("hidden");
 }
 
-$('logoutBtn').onclick=()=>{
-  state.token=null;
-  state.user=null;
+async function adminLogin() {
+  clearMessage("adminMsg");
 
-  $('loginView').classList.remove('hidden');
-  $('changeView').classList.add('hidden');
-  $('payView').classList.add('hidden');
-  $('logoutBtn').classList.add('hidden');
-  $('payslip').classList.add('hidden');
+  const password = $("adminPassword").value;
 
-  $('password').value='';
-  $('newPassword').value='';
-  $('newPassword2').value='';
-};
-
-$('adminLoginBtn').onclick=async()=>{
-  setMessage('adminMsg','Đang kiểm tra...');
-
-  try{
-    const result=await api({
-      action:'adminLogin',
-      password:$('adminPassword').value
-    });
-
-    if(!result.ok){
-      setMessage('adminMsg','Sai mật khẩu Admin.',true);
-      return;
-    }
-
-    state.adminToken=result.token;
-    $('adminPanel').classList.remove('hidden');
-    setMessage('adminMsg','Đăng nhập Admin thành công.');
-
-  }catch(e){
-    setMessage('adminMsg','Không kết nối được máy chủ.',true);
-  }
-};
-
-$('resetBtn').onclick=async()=>{
-  const username=$('resetUsername').value.trim();
-
-  if(!username){
-    setMessage('adminMsg','Nhập số Căn cước cần reset.',true);
+  if (!password) {
+    showMessage("adminMsg","Vui lòng nhập mật khẩu Admin.","error");
     return;
   }
 
-  try{
-    const result=await api({
-      action:'adminReset',
-      token:state.adminToken,
-      username:username
+  setBusy("adminLoginBtn",true,"Đang đăng nhập...");
+
+  try {
+    const data = await api({
+      action:"adminLogin",
+      password
     });
 
-    if(!result.ok){
-      setMessage(
-        'adminMsg',
-        'Reset thất bại: '+result.error,
-        true
-      );
+    if (!data.ok) {
+      showMessage("adminMsg",friendlyError(data.error),"error");
       return;
     }
 
-    setMessage(
-      'adminMsg',
-      'Reset thành công. Mật khẩu tạm thời là Mã nhân viên.'
-    );
+    state.adminToken = data.token;
+    $("adminPanel").classList.remove("hidden");
+    $("adminPassword").value = "";
 
-  }catch(e){
-    setMessage('adminMsg','Không kết nối được máy chủ.',true);
+    showMessage("adminMsg","Đăng nhập Admin thành công.","success");
+  } catch (err) {
+    showMessage("adminMsg",friendlyError(err.message),"error");
+  } finally {
+    setBusy("adminLoginBtn",false,"Đăng nhập Admin");
   }
-};
+}
+
+async function adminReset() {
+  clearMessage("adminMsg");
+
+  if (!state.adminToken) {
+    showMessage("adminMsg","Phiên Admin đã hết hạn.","error");
+    return;
+  }
+
+  const username = $("resetUsername").value.trim();
+
+  if (!username) {
+    showMessage("adminMsg","Nhập số Căn cước nhân viên cần reset.","error");
+    return;
+  }
+
+  if (!confirm("Bạn có chắc muốn reset mật khẩu nhân viên này?"))
+    return;
+
+  setBusy("resetBtn",true,"Đang reset...");
+
+  try {
+    const data = await api({
+      action:"adminReset",
+      token:state.adminToken,
+      username
+    });
+
+    if (!data.ok) {
+      if (data.error === "SESSION_EXPIRED") {
+        state.adminToken = "";
+        $("adminPanel").classList.add("hidden");
+      }
+
+      showMessage("adminMsg",friendlyError(data.error),"error");
+      return;
+    }
+
+    $("resetUsername").value = "";
+
+    showMessage(
+      "adminMsg",
+      `Reset thành công. Mật khẩu tạm thời là Mã NV: ${data.employeeId}`,
+      "success"
+    );
+  } catch (err) {
+    showMessage("adminMsg",friendlyError(err.message),"error");
+  } finally {
+    setBusy("resetBtn",false,"Reset mật khẩu");
+  }
+}
+
+function logout() {
+  state.token = "";
+  state.user = null;
+  state.adminToken = "";
+
+  $("password").value = "";
+  $("newPassword").value = "";
+  $("newPassword2").value = "";
+  $("payslip").classList.add("hidden");
+  $("logoutBtn").classList.add("hidden");
+
+  showOnly("loginView");
+  $("username").focus();
+}
+
+function sessionExpired() {
+  logout();
+  showMessage(
+    "loginMsg",
+    "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+    "error"
+  );
+}
+
+function showOnly(id) {
+  ["loginView","changeView","payView"].forEach(x => {
+    $(x).classList.toggle("hidden",x !== id);
+  });
+}
+
+function showMessage(id,text,type="") {
+  const el=$(id);
+  el.textContent=text;
+  el.className="message "+type;
+}
+
+function clearMessage(id) {
+  const el=$(id);
+  el.textContent="";
+  el.className="message";
+}
+
+function setBusy(id,busy,text) {
+  const btn=$(id);
+  if (!btn) return;
+
+  if (!btn.dataset.originalText)
+    btn.dataset.originalText=btn.textContent;
+
+  btn.disabled=busy;
+  btn.textContent=busy ? text : btn.dataset.originalText;
+}
+
+function friendlyError(code) {
+  const map = {
+    INVALID_CREDENTIALS:"Sai Căn cước hoặc mật khẩu.",
+    PASSWORD_TOO_SHORT:"Mật khẩu phải có ít nhất 8 ký tự.",
+    PASSWORD_MISMATCH:"Hai mật khẩu không giống nhau.",
+    PASSWORD_CANNOT_BE_EMPLOYEE_ID:"Mật khẩu mới không được trùng Mã nhân viên.",
+    SESSION_EXPIRED:"Phiên đăng nhập đã hết hạn.",
+    PASSWORD_CHANGE_REQUIRED:"Bạn phải đổi mật khẩu trước khi xem phiếu lương.",
+    INVALID_MONTH:"Kỳ lương không hợp lệ.",
+    PAYSLIP_NOT_FOUND:"Không tìm thấy phiếu lương của kỳ này.",
+    INVALID_ADMIN_CREDENTIALS:"Sai mật khẩu Admin.",
+    USER_NOT_FOUND:"Không tìm thấy nhân viên hoặc nhân viên đã inactive.",
+    EMPLOYEE_ID_MISSING:"Nhân viên chưa có Mã NV.",
+    SERVER_INVALID_RESPONSE:"Máy chủ trả về dữ liệu không hợp lệ.",
+    SERVER_ERROR:"Máy chủ xảy ra lỗi.",
+    INVALID_API_KEY:"API key đồng bộ không hợp lệ.",
+    EMPTY_BATCH:"Batch không có dữ liệu.",
+    API_TIMEOUT:"Máy chủ phản hồi quá lâu. Vui lòng thử lại."
+  };
+
+  return map[code] || "Có lỗi xảy ra. Vui lòng thử lại.";
+}
+
+function buildMonthList() {
+  const select=$("monthSelect");
+  if (!select) return;
+
+  select.innerHTML="";
+
+  const d=new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth()-1);
+
+  for(let i=0;i<12;i++){
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const y=d.getFullYear();
+    const value=`${m}-${y}`;
+
+    const option=document.createElement("option");
+    option.value=value;
+    option.textContent=`${m}-${y}`;
+
+    select.appendChild(option);
+    d.setMonth(d.getMonth()-1);
+  }
+}
