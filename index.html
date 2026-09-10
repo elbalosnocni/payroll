@@ -1,353 +1,115 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ Thống Tra Cứu Bảng Lương</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        :root {
-            --primary-color: #0d6efd;
-            --bg-color: #f4f6f9;
-        }
-        body {
-            background-color: var(--bg-color);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .search-card {
-            max-width: 500px;
-            margin: 40px auto;
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-        }
-        .salary-card {
-            max-width: 900px;
-            margin: 20px auto;
-            background: #fff;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.1);
-        }
-        .table-custom th {
-            background-color: #eef2f7;
-            font-weight: 600;
-        }
-        .highlight-row {
-            background-color: #e8f4fe;
-            font-weight: bold;
-        }
-        .text-income { color: #198754; }
-        .text-deduct { color: #dc3545; }
-        @media print {
-            .no-print { display: none !important; }
-            .salary-card { box-shadow: none; border: none; padding: 0; width: 100%; max-width: 100%; }
-            body { background-color: #fff; }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Tra cứu phiếu lương</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div class="page">
 
-<div class="container">
-    <!-- KHUNG TRA CỨU -->
-    <div class="card search-card no-print" id="searchBox">
-        <div class="card-header bg-primary text-white text-center py-3 rounded-top">
-            <h4 class="mb-0 fs-5"><i class="fa-solid fa-file-invoice-dollar me-2"></i>TRA CỨU BẢNG LƯƠNG</h4>
-        </div>
-        <div class="card-body p-4">
-            <form id="searchForm">
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Chọn Kỳ Lương</label>
-                    <select class="form-select" id="periodSelect">
-                        <option value="">Đang tải các kỳ lương...</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Mã Nhân Viên</label>
-                    <input type="text" class="form-control" id="maNV" placeholder="Nhập Mã Nhân Viên" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Số CCCD</label>
-                    <input type="password" class="form-control" id="cccd" placeholder="Nhập 12 số CCCD" required>
-                </div>
-                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" id="btnSearch">
-                    <i class="fa-solid fa-magnifying-glass me-2"></i> Tra Cứu
-                </button>
-            </form>
-            <div id="alertMsg" class="mt-3 text-center text-danger fw-bold" style="display:none;"></div>
-        </div>
+  <header class="topbar">
+    <div>
+      <h1>Tra cứu phiếu lương</h1>
+      <p>Hệ thống tra cứu lương nhân viên</p>
     </div>
+    <button id="logoutBtn" class="btn secondary hidden">Đăng xuất</button>
+  </header>
 
-    <!-- KHUNG HIỂN THỊ LƯƠNG -->
-    <div class="salary-card" id="salaryResult" style="display: none;">
-        <div class="d-flex justify-content-between align-items-center mb-3 no-print">
-            <button class="btn btn-outline-secondary" onclick="resetForm()"><i class="fa-solid fa-arrow-left me-1"></i> Tra cứu khác</button>
-            <button class="btn btn-success" onclick="window.print()"><i class="fa-solid fa-print me-1"></i> In / Tải PDF</button>
+  <main>
+
+    <section id="loginView" class="panel login-panel">
+      <div class="icon">₫</div>
+      <h2>Đăng nhập</h2>
+      <p class="muted">Sử dụng số Căn cước và mật khẩu.</p>
+
+      <label for="username">Số Căn cước</label>
+      <input id="username" inputmode="numeric" autocomplete="username"
+             placeholder="Nhập số Căn cước">
+
+      <label for="password">Mật khẩu</label>
+      <input id="password" type="password" autocomplete="current-password"
+             placeholder="Nhập mật khẩu">
+
+      <button id="loginBtn" class="btn primary full">Đăng nhập</button>
+      <div id="loginMsg" class="message"></div>
+    </section>
+
+    <section id="changeView" class="panel hidden">
+      <h2>Đổi mật khẩu</h2>
+      <div class="warning">
+        Đây là lần đăng nhập đầu tiên hoặc mật khẩu vừa được Admin reset.
+        Bạn phải đổi mật khẩu trước khi xem phiếu lương.
+      </div>
+
+      <label for="newPassword">Mật khẩu mới</label>
+      <input id="newPassword" type="password" autocomplete="new-password"
+             placeholder="Ít nhất 8 ký tự">
+
+      <label for="newPassword2">Nhập lại mật khẩu mới</label>
+      <input id="newPassword2" type="password" autocomplete="new-password">
+
+      <button id="changeBtn" class="btn primary full">Đổi mật khẩu</button>
+      <div id="changeMsg" class="message"></div>
+    </section>
+
+    <section id="payView" class="hidden">
+
+      <div class="panel user-panel">
+        <div class="user-info">
+          <strong id="fullName"></strong>
+          <span id="employeeMeta" class="muted"></span>
         </div>
 
-        <div class="text-center mb-4">
-            <h3 class="fw-bold text-uppercase text-primary mb-1">PHIẾU LƯƠNG NHÂN VIÊN</h3>
-            <p class="text-muted" id="dispPeriod">Kỳ lương: --</p>
+        <div class="controls">
+          <select id="monthSelect"></select>
+          <button id="loadBtn" class="btn primary">Xem phiếu</button>
+        </div>
+      </div>
+
+      <div id="payMsg" class="message"></div>
+
+      <article id="payslip" class="panel hidden"></article>
+    </section>
+
+    <section class="panel admin-panel">
+      <details>
+        <summary>Quản trị viên</summary>
+
+        <label for="adminPassword">Mật khẩu Admin</label>
+        <input id="adminPassword" type="password">
+
+        <button id="adminLoginBtn" class="btn secondary">
+          Đăng nhập Admin
+        </button>
+
+        <div id="adminPanel" class="hidden">
+          <hr>
+
+          <label for="resetUsername">Số Căn cước nhân viên</label>
+          <input id="resetUsername" inputmode="numeric">
+
+          <button id="resetBtn" class="btn danger">
+            Reset mật khẩu
+          </button>
+
+          <p class="muted">
+            Sau reset, mật khẩu tạm thời là Mã nhân viên.
+            Nhân viên bắt buộc đổi mật khẩu khi đăng nhập.
+          </p>
         </div>
 
-        <!-- THÔNG TIN NHÂN VIÊN -->
-        <div class="row g-3 mb-4 p-3 rounded" style="background-color: #f8f9fa;">
-            <div class="col-md-6"><b>Họ và tên:</b> <span id="dispHoTen" class="text-primary">--</span></div>
-            <div class="col-md-6"><b>Mã Nhân Viên:</b> <span id="dispMaNV">--</span></div>
-            <div class="col-md-6"><b>Xưởng:</b> <span id="dispXuong">--</span></div>
-            <div class="col-md-6"><b>Phòng ban:</b> <span id="dispPhongBan">--</span></div>
-            <div class="col-md-6"><b>Bộ phận:</b> <span id="dispBoPhan">--</span></div>
-            <div class="col-md-6"><b>Chức vụ:</b> <span id="dispChucVu">--</span></div>
-        </div>
+        <div id="adminMsg" class="message"></div>
+      </details>
+    </section>
 
-        <!-- CHI TIẾT LƯƠNG -->
-        <div class="table-responsive">
-            <table class="table table-bordered table-custom align-middle">
-                <tbody>
-                    <!-- A. THU NHẬP -->
-                    <tr class="table-primary fw-bold">
-                        <td colspan="2">A. CÁC KHOẢN THU NHẬP</td>
-                        <td class="text-end text-income" id="dispTongThuNhap">0 VNĐ</td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4" colspan="2">
-                            <b>1. Lương tháng</b><br>
-                            <small class="text-muted">
-                                Lương CB: <span id="dispLươngCB">0</span> | NC làm việc: <span id="dispNCLamViec">0</span> | 
-                                NC Lễ: <span id="dispNCLe">0</span> | NC Nghỉ HL: <span id="dispNCNghiHL">0</span> | 
-                                NC Nghỉ KHL: <span id="dispNCNghiKHL">0</span> | HL tối thiểu vùng: <span id="dispNCTLttv">0</span>
-                            </small>
-                        </td>
-                        <td class="text-end fw-bold" id="dispLươngThang">0 VNĐ</td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4" colspan="2">
-                            <b>2. Lương ngoài giờ / Ca đêm / Ngày lễ</b><br>
-                            <small class="text-muted">
-                                Giờ OT: <span id="dispGioOT">0</span>h | Giờ Ngày nghỉ: <span id="dispGioNN">0</span>h | 
-                                OT Ngày nghỉ: <span id="dispGioOTNN">0</span>h | TC Đêm NN: <span id="dispGioTCDN">0</span>h | 
-                                TC Đêm: <span id="dispGioTCD">0</span>h | Giờ Lễ: <span id="dispGioLe">0</span>h | 
-                                OT Lễ: <span id="dispGioOTLe">0</span>h | TC Đêm Lễ: <span id="dispGioTCDL">0</span>h | 
-                                Số ngày ca đêm: <span id="dispNgayCD">0</span>
-                            </small>
-                        </td>
-                        <td class="text-end fw-bold" id="dispLươngNgoaiGio">0 VNĐ</td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4" colspan="2"><b>3. Các khoản phụ cấp, trợ cấp & bổ sung khác</b></td>
-                        <td class="text-end fw-bold">--</td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Tiền khác (công tác phí, cơm)</td>
-                        <td class="text-end" id="dispTienKhac">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Tiền kỷ luật</td>
-                        <td class="text-end" id="dispTienKyLuat">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Thưởng gắn bó (2 năm / 5 năm / 10 năm)</td>
-                        <td class="text-end" id="dispGanBo">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Tiền nhà ở & Đi lại</td>
-                        <td class="text-end" id="dispNhaODiLai">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Thưởng chuyên cần</td>
-                        <td class="text-end" id="dispChuyenCan">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Hoa hồng bán hàng & Vượt định mức</td>
-                        <td class="text-end" id="dispHoaHong">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-5">- Trợ cấp thôi việc & Phép năm còn lại</td>
-                        <td class="text-end" id="dispTroCapPnam">0 VNĐ</td>
-                        <td></td>
-                    </tr>
+  </main>
 
-                    <!-- B. KHẤU TRỪ -->
-                    <tr class="table-danger fw-bold">
-                        <td colspan="2">B. CÁC KHOẢN KHẤU TRỪ</td>
-                        <td class="text-end text-deduct" id="dispTongKhauTru">0 VNĐ</td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4">- BHXH (8%)</td>
-                        <td class="text-end" id="dispBHXH">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4">- BHYT (1.5%)</td>
-                        <td class="text-end" id="dispBHYT">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4">- BHTN (1%)</td>
-                        <td class="text-end" id="dispBHTN">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4">- Thuế TNCN</td>
-                        <td class="text-end" id="dispThueTNCN">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4">- Tạm ứng</td>
-                        <td class="text-end" id="dispTamUng">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td class="ps-4">- Khấu trừ khác</td>
-                        <td class="text-end" id="dispKhauTruKhac">0 VNĐ</td>
-                        <td></td>
-                    </tr>
-
-                    <!-- C. THỰC LĨNH -->
-                    <tr class="highlight-row text-uppercase fs-5">
-                        <td colspan="2" class="text-primary">C. LƯƠNG THỰC LĨNH</td>
-                        <td class="text-end text-primary fw-bold" id="dispThucLinh">0 VNĐ</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+  <footer>Payroll Portal © 2026</footer>
 </div>
 
-<script>
-const GAS_API = "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec";
-
-document.addEventListener("DOMContentLoaded", () => {
-    loadPeriods();
-});
-
-function loadPeriods() {
-    fetch(`${GAS_API}?action=getPeriods`)
-        .then(res => res.json())
-        .then(data => {
-            const select = document.getElementById("periodSelect");
-            select.innerHTML = "";
-            if (data.success && data.periods.length > 0) {
-                data.periods.forEach(p => {
-                    let opt = document.createElement("option");
-                    opt.value = p;
-                    opt.innerText = `Tháng ${p}`;
-                    select.appendChild(opt);
-                });
-            } else {
-                select.innerHTML = '<option value="">Chưa có dữ liệu kỳ lương</option>';
-            }
-        });
-}
-
-document.getElementById("searchForm").addEventListener("submit", function(e) {
-    e.preventDefault();
-    const period = document.getElementById("periodSelect").value;
-    const ma_nv = document.getElementById("maNV").value.trim();
-    const cccd = document.getElementById("cccd").value.trim();
-    const btn = document.getElementById("btnSearch");
-    const alertMsg = document.getElementById("alertMsg");
-
-    alertMsg.style.display = "none";
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> Đang tra cứu...`;
-
-    fetch(`${GAS_API}?action=getSalary&ma_nv=${encodeURIComponent(ma_nv)}&cccd=${encodeURIComponent(cccd)}&period=${encodeURIComponent(period)}`)
-        .then(res => res.json())
-        .then(res => {
-            btn.disabled = false;
-            btn.innerHTML = `<i class="fa-solid fa-magnifying-glass me-2"></i> Tra Cứu`;
-
-            if (res.success) {
-                renderSalary(res.data);
-            } else {
-                alertMsg.innerText = res.message;
-                alertMsg.style.display = "block";
-            }
-        })
-        .catch(err => {
-            btn.disabled = false;
-            btn.innerHTML = `<i class="fa-solid fa-magnifying-glass me-2"></i> Tra Cứu`;
-            alertMsg.innerText = "Lỗi kết nối máy chủ! Vui lòng thử lại sau.";
-            alertMsg.style.display = "block";
-        });
-});
-
-function formatVNĐ(num) {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num || 0);
-}
-
-function renderSalary(d) {
-    document.getElementById("searchBox").style.display = "none";
-    document.getElementById("salaryResult").style.display = "block";
-
-    document.getElementById("dispPeriod").innerText = `Kỳ lương tháng: ${d.period}`;
-    document.getElementById("dispHoTen").innerText = d.ho_ten;
-    document.getElementById("dispMaNV").innerText = d.ma_nv;
-    document.getElementById("dispXuong").innerText = d.xuong;
-    document.getElementById("dispPhongBan").innerText = d.phong_ban;
-    document.getElementById("dispBoPhan").innerText = d.bo_phan;
-    document.getElementById("dispChucVu").innerText = d.chuc_vu;
-
-    // Chi tiết Lương CB & Ngày công
-    document.getElementById("dispLươngCB").innerText = formatVNĐ(d.luong_co_ban);
-    document.getElementById("dispNCLamViec").innerText = d.ngay_lam_viec;
-    document.getElementById("dispNCLe").innerText = d.ngay_le;
-    document.getElementById("dispNCNghiHL").innerText = d.ngay_nghi_huong_luong;
-    document.getElementById("dispNCNghiKHL").innerText = d.ngay_nghi_khong_luong;
-    document.getElementById("dispNCTLttv").innerText = d.ngay_huong_luong_ttv;
-    document.getElementById("dispLươngThang").innerText = formatVNĐ(d.luong_thang);
-
-    // Giờ tăng ca
-    document.getElementById("dispGioOT").innerText = d.gio_ot;
-    document.getElementById("dispGioNN").innerText = d.gio_ngay_nghi;
-    document.getElementById("dispGioOTNN").innerText = d.gio_ot_ngay_nghi;
-    document.getElementById("dispGioTCDN").innerText = d.gio_tc_dem_ngay_nghi;
-    document.getElementById("dispGioTCD").innerText = d.gio_tc_dem;
-    document.getElementById("dispGioLe").innerText = d.gio_ngay_le;
-    document.getElementById("dispGioOTLe").innerText = d.gio_ot_ngay_le;
-    document.getElementById("dispGioTCDL").innerText = d.gio_tc_dem_ngay_le;
-    document.getElementById("dispNgayCD").innerText = d.ngay_ca_dem;
-    document.getElementById("dispLươngNgoaiGio").innerText = formatVNĐ(d.luong_ngoai_gio);
-
-    // Phụ cấp & Khác
-    document.getElementById("dispTienKhac").innerText = formatVNĐ(d.tien_khac);
-    document.getElementById("dispTienKyLuat").innerText = formatVNĐ(d.tien_ky_luat);
-    document.getElementById("dispGanBo").innerText = formatVNĐ((d.gan_bo_2n || 0) + (d.gan_bo_5n || 0) + (d.gan_bo_10n || 0));
-    document.getElementById("dispNhaODiLai").innerText = formatVNĐ((d.nhan_o || 0) + (d.di_lai || 0));
-    document.getElementById("dispChuyenCan").innerText = formatVNĐ(d.chuyen_can);
-    document.getElementById("dispHoaHong").innerText = formatVNĐ(d.hoa_hong_thuong_dm);
-    document.getElementById("dispTroCapPnam").innerText = formatVNĐ(d.tro_cap_thoi_viec_pnam);
-
-    document.getElementById("dispTongThuNhap").innerText = formatVNĐ(d.tong_thu_nhap);
-
-    // Khấu trừ
-    document.getElementById("dispBHXH").innerText = formatVNĐ(d.bhxh);
-    document.getElementById("dispBHYT").innerText = formatVNĐ(d.bhyt);
-    document.getElementById("dispBHTN").innerText = formatVNĐ(d.bhtn);
-    document.getElementById("dispThueTNCN").innerText = formatVNĐ(d.thue_tncn);
-    document.getElementById("dispTamUng").innerText = formatVNĐ(d.tam_ung);
-    document.getElementById("dispKhauTruKhac").innerText = formatVNĐ(d.khau_tru_khac);
-
-    const tongKhauTru = (d.bhxh||0) + (d.bhyt||0) + (d.bhtn||0) + (d.thue_tncn||0) + (d.tam_ung||0) + (d.khau_tru_khac||0);
-    document.getElementById("dispTongKhauTru").innerText = formatVNĐ(tongKhauTru);
-
-    // Thực lĩnh
-    document.getElementById("dispThucLinh").innerText = formatVNĐ(d.thuc_linh);
-}
-
-function resetForm() {
-    document.getElementById("searchBox").style.display = "block";
-    document.getElementById("salaryResult").style.display = "none";
-    document.getElementById("searchForm").reset();
-}
-</script>
+<script src="app.js"></script>
 </body>
 </html>
