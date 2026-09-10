@@ -7,7 +7,7 @@ xl.Visible = False
 xl.DisplayAlerts = False
 xl.EnableEvents = True
 xl.AskToUpdateLinks = False
-Set wb = xl.Workbooks.Open("X:\DS + PN + TP - 2014\AnnualLeaveSync.xlsm", False, False)
+Set wb = xl.Workbooks.Open("D:\SyncPayroll.xlsm", False, False)
 If Err.Number <> 0 Then xl.Quit : WScript.Quit 2
 Err.Clear
 xl.Run "'" & wb.Name & "'!SyncAnnualLeaveToGoogle"
