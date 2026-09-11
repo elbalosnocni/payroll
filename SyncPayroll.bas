@@ -1,32 +1,6 @@
 Option Explicit
 
 ' ============================================================
-' QUICK TEST
-' Run this macro to verify the two expected source paths for
-' the previous payroll month without opening the files.
-' ============================================================
-Public Sub CheckPreviousPayrollFiles()
-    Dim pm As String
-    pm = PreviousPayrollMonth_()
-
-    Dim snackPath As String
-    Dim flexPath As String
-
-    snackPath = ROOT & "SALARY - 2014 - 2015\VNLWW\" & Right$(pm, 4) & _
-                "\SALARY " & pm & ".xlsb"
-
-    flexPath = ROOT & "SALARY - 2014 - 2015\Printing line\" & Right$(pm, 4) & _
-               "\PRINTING LINE " & pm & ".xlsb"
-
-    MsgBox "Kỳ lương: " & pm & vbCrLf & vbCrLf & _
-           "Snack: " & IIf(FileExists_(snackPath), "OK", "KHÔNG TÌM THẤY") & vbCrLf & _
-           snackPath & vbCrLf & vbCrLf & _
-           "Flexible: " & IIf(FileExists_(flexPath), "OK", "KHÔNG TÌM THẤY") & vbCrLf & _
-           flexPath, vbInformation, "Kiểm tra file Payroll"
-End Sub
-
-
-' ============================================================
 ' PAYROLL SYNC - VBA / Excel XLSB
 ' Version: Optimized batch sync
 '
@@ -40,12 +14,12 @@ End Sub
 ' XLSB password: 1234
 '
 ' DSCNV:
-' B  = Họ tên
+' B  = Ho ten
 ' H  = CCCD
-' AF = Phòng ban
-' AG = Bộ phận
-' AH = Chức vụ
-' D  = Mã NV (used as primary join key)
+' AF = Phong ban
+' AG = Bo phan
+' AH = Chuc vu
+' D  = Ma NV (used as primary join key)
 '
 ' Salary:
 ' D  = EmployeeID
@@ -147,28 +121,28 @@ Public Sub SyncBothFactories()
     Dim msg As String
     Dim okSnack As Boolean, okFlex As Boolean
 
-    msg = "KỲ LƯƠNG: " & payMonth & vbCrLf & vbCrLf
+    msg = "KY LUONG: " & payMonth & vbCrLf & vbCrLf
 
     If FileExists_(snackPath) Then
         okSnack = SyncFactoryFile(snackPath, "Snack", payMonth)
         If okSnack Then
-            msg = msg & "✓ Snack: thành công" & vbCrLf
+            msg = msg & " Snack: thanh cong" & vbCrLf
         Else
-            msg = msg & "✗ Snack: thất bại" & vbCrLf
+            msg = msg & " Snack: that bai" & vbCrLf
         End If
     Else
-        msg = msg & "✗ Snack: không tìm thấy file" & vbCrLf
+        msg = msg & " Snack: khong tim thay file" & vbCrLf
     End If
 
     If FileExists_(flexPath) Then
         okFlex = SyncFactoryFile(flexPath, "Flexible", payMonth)
         If okFlex Then
-            msg = msg & "✓ Flexible: thành công" & vbCrLf
+            msg = msg & " Flexible: thanh cong" & vbCrLf
         Else
-            msg = msg & "✗ Flexible: thất bại" & vbCrLf
+            msg = msg & " Flexible: that bai" & vbCrLf
         End If
     Else
-        msg = msg & "✗ Flexible: không tìm thấy file" & vbCrLf
+        msg = msg & " Flexible: khong tim thay file" & vbCrLf
     End If
 
     Application.StatusBar = False
@@ -185,7 +159,7 @@ Public Sub SyncSnackOnly()
         "\SALARY " & pm & ".xlsb"
 
     If Not FileExists_(p) Then
-        MsgBox "Không tìm thấy file:" & vbCrLf & p, vbCritical
+        MsgBox "Khong tim thay file:" & vbCrLf & p, vbCritical
         Exit Sub
     End If
 
@@ -202,7 +176,7 @@ Public Sub SyncFlexibleOnly()
         "\PRINTING LINE " & pm & ".xlsb"
 
     If Not FileExists_(p) Then
-        MsgBox "Không tìm thấy file:" & vbCrLf & p, vbCritical
+        MsgBox "Khong tim thay file:" & vbCrLf & p, vbCritical
         Exit Sub
     End If
 
@@ -217,7 +191,7 @@ Public Function SyncFactoryFile( _
     On Error GoTo EH
 
     If SYNC_API_KEY = "PUT_YOUR_RANDOM_SYNC_API_KEY_HERE" Or Len(SYNC_API_KEY) < 24 Then
-        MsgBox "Hãy thay SYNC_API_KEY bằng khóa ngẫu nhiên mới trước khi đồng bộ.", vbCritical
+        MsgBox "Hay thay SYNC_API_KEY bang khoa ngau nhien moi truoc khi ong bo.", vbCritical
         Exit Function
     End If
 
@@ -251,7 +225,7 @@ Public Function SyncFactoryFile( _
         wsSalary.Rows.Count, COL_EMPLOYEE_ID).End(xlUp).Row
 
     If lastRow < 2 Then
-        MsgBox factory & ": không có dữ liệu Salary.", vbExclamation
+        MsgBox factory & ": khong co du lieu Salary.", vbExclamation
         GoTo FAIL_EXIT
     End If
 
@@ -265,7 +239,7 @@ Public Function SyncFactoryFile( _
     totalRows = CountSalaryRows_(salaryData, lastRow)
 
     If totalRows = 0 Then
-        MsgBox factory & ": không có nhân viên hợp lệ.", vbExclamation
+        MsgBox factory & ": khong co nhan vien hop le.", vbExclamation
         GoTo FAIL_EXIT
     End If
 
@@ -317,21 +291,21 @@ Public Function SyncFactoryFile( _
 
         If Not PostWithRetry_(payload, response) Then
             MsgBox factory & _
-                " thất bại tại batch " & batchNo & "/" & totalBatches & _
+                " that bai tai batch " & batchNo & "/" & totalBatches & _
                 vbCrLf & response, vbCritical
             GoTo FAIL_EXIT
         End If
 
         If Not ResponseOK_(response) Then
             MsgBox factory & _
-                " server từ chối batch " & batchNo & "/" & totalBatches & _
+                " server tu choi batch " & batchNo & "/" & totalBatches & _
                 vbCrLf & response, vbCritical
             GoTo FAIL_EXIT
         End If
 
         Application.StatusBar = _
             factory & " - batch " & batchNo & "/" & totalBatches & _
-            " - " & endIndex & "/" & totalRows & " nhân viên"
+            " - " & endIndex & "/" & totalRows & " nhan vien"
     Next startIndex
 
     SyncFactoryFile = True
@@ -357,7 +331,7 @@ EH:
     SyncFactoryFile = False
 
     MsgBox _
-        "Lỗi SyncFactoryFile:" & vbCrLf & _
+        "Loi SyncFactoryFile:" & vbCrLf & _
         Err.Number & " - " & Err.Description, _
         vbCritical
 
@@ -641,8 +615,8 @@ Private Function PostWithRetry_( _
 
         waitSeconds = attempt * 2
         Application.StatusBar = _
-            "API lỗi - thử lại " & attempt & "/" & MAX_RETRY & _
-            " sau " & waitSeconds & " giây..."
+            "API loi - thu lai " & attempt & "/" & MAX_RETRY & _
+            " sau " & waitSeconds & " giay..."
 
         SleepSeconds_ waitSeconds
     Next attempt
@@ -734,24 +708,7 @@ Private Function CleanCCCD_(ByVal s As String) As String
         s = Mid$(s, 2)
     Loop
 
-    ' CCCD is 12 digits. If the source cell was accidentally converted
-    ' to a numeric 11-digit value, restore the leading zero.
-    If Len(s) = 11 And IsDigitsOnly_(s) Then
-        s = "0" & s
-    End If
-
     CleanCCCD_ = s
-End Function
-
-Private Function IsDigitsOnly_(ByVal s As String) As Boolean
-    Dim i As Long
-    If Len(s) = 0 Then Exit Function
-
-    For i = 1 To Len(s)
-        If Mid$(s, i, 1) < "0" Or Mid$(s, i, 1) > "9" Then Exit Function
-    Next i
-
-    IsDigitsOnly_ = True
 End Function
 
 Private Function NormalizeName_(ByVal s As String) As String
@@ -763,8 +720,55 @@ Private Function PreviousPayrollMonth_() As String
 End Function
 
 Private Function FileExists_(ByVal filePath As String) As Boolean
+    On Error Resume Next
     FileExists_ = (Len(Dir$(filePath, vbNormal Or vbHidden Or vbSystem Or vbReadOnly)) > 0)
+    On Error GoTo 0
 End Function
+
+Public Sub CheckPreviousPayrollFiles()
+    ' Fully standalone diagnostic macro.
+    ' This procedure can be pasted into any standard VBA module.
+    Const ROOT_PATH As String = "\\192.168.0.253\vn hr\"
+
+    Dim pm As String
+    Dim yearPart As String
+    Dim snackPath As String
+    Dim flexPath As String
+    Dim snackStatus As String
+    Dim flexStatus As String
+
+    pm = Format$(DateAdd("m", -1, Date), "mm-yyyy")
+    yearPart = Right$(pm, 4)
+
+    snackPath = ROOT_PATH & _
+        "SALARY - 2014 - 2015\VNLWW\" & yearPart & _
+        "\SALARY " & pm & ".xlsb"
+
+    flexPath = ROOT_PATH & _
+        "SALARY - 2014 - 2015\Printing line\" & yearPart & _
+        "\PRINTING LINE " & pm & ".xlsb"
+
+    If Len(Dir$(snackPath, vbNormal Or vbHidden Or vbSystem Or vbReadOnly)) > 0 Then
+        snackStatus = "OK - FOUND"
+    Else
+        snackStatus = "NOT FOUND"
+    End If
+
+    If Len(Dir$(flexPath, vbNormal Or vbHidden Or vbSystem Or vbReadOnly)) > 0 Then
+        flexStatus = "OK - FOUND"
+    Else
+        flexStatus = "NOT FOUND"
+    End If
+
+    MsgBox _
+        "PAYROLL PERIOD: " & pm & vbCrLf & vbCrLf & _
+        "SNACK: " & snackStatus & vbCrLf & _
+        snackPath & vbCrLf & vbCrLf & _
+        "FLEXIBLE: " & flexStatus & vbCrLf & _
+        flexPath, _
+        vbInformation, _
+        "CHECK PAYROLL FILES"
+End Sub
 
 Private Sub SleepSeconds_(ByVal seconds As Long)
     Dim endTime As Date
