@@ -1,116 +1,86 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="robots" content="noindex,nofollow">
-  <meta name="description" content="Cổng tra cứu phiếu lương nhân viên">
-  <title>Tra cứu phiếu lương</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tra Cứu Phiếu Lương Nhân Viên</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="page">
-
-  <header class="topbar">
-    <div>
-      <h1>Tra cứu phiếu lương</h1>
-      <p>Hệ thống tra cứu lương nhân viên</p>
+  <div class="container">
+    <!-- View Đăng Nhập -->
+    <div id="loginCard" class="card">
+      <h2>ĐĂNG NHẬP TRA CỨU LƯƠNG</h2>
+      <form id="loginForm">
+        <div class="form-group">
+          <label>Số Căn Cước (CCCD)</label>
+          <input type="text" id="citizenId" placeholder="Nhập số CCCD" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label>Mật Khẩu</label>
+          <input type="password" id="password" placeholder="Mật khẩu lần đầu là Mã NV" required autocomplete="current-password">
+        </div>
+        <button type="submit" id="btnLogin">Đăng Nhập</button>
+      </form>
+      <p id="loginMsg" class="msg-error"></p>
     </div>
-    <button id="logoutBtn" class="btn secondary hidden">Đăng xuất</button>
-  </header>
 
-  <main>
-
-    <section id="loginView" class="panel login-panel">
-      <div class="icon">₫</div>
-      <h2>Đăng nhập</h2>
-      <p class="muted">Sử dụng số Căn cước và mật khẩu.</p>
-
-      <label for="username">Số Căn cước</label>
-      <input id="username" inputmode="numeric" autocomplete="username"
-             placeholder="Nhập số Căn cước">
-
-      <label for="password">Mật khẩu</label>
-      <input id="password" type="password" autocomplete="current-password"
-             placeholder="Nhập mật khẩu">
-
-      <button id="loginBtn" class="btn primary full">Đăng nhập</button>
-      <div id="loginMsg" class="message"></div>
-    </section>
-
-    <section id="changeView" class="panel hidden">
-      <h2>Đổi mật khẩu</h2>
-      <div class="warning">
-        Đây là lần đăng nhập đầu tiên hoặc mật khẩu vừa được Admin reset.
-        Bạn phải đổi mật khẩu trước khi xem phiếu lương.
-      </div>
-
-      <label for="newPassword">Mật khẩu mới</label>
-      <input id="newPassword" type="password" autocomplete="new-password"
-             placeholder="Ít nhất 8 ký tự">
-
-      <label for="newPassword2">Nhập lại mật khẩu mới</label>
-      <input id="newPassword2" type="password" autocomplete="new-password">
-
-      <button id="changeBtn" class="btn primary full">Đổi mật khẩu</button>
-      <div id="changeMsg" class="message"></div>
-    </section>
-
-    <section id="payView" class="hidden">
-
-      <div class="panel user-panel">
-        <div class="user-info">
-          <strong id="fullName"></strong>
-          <span id="employeeMeta" class="muted"></span>
+    <!-- View Đổi Mật Khẩu Bắt Buộc -->
+    <div id="changePwdCard" class="card hidden">
+      <h2>ĐỔI MẬT KHẨU LẦN ĐẦU</h2>
+      <p class="sub-text">Để đảm bảo an toàn thông tin, vui lòng đổi mật khẩu trước khi xem phiếu lương.</p>
+      <form id="changePwdForm">
+        <div class="form-group">
+          <label>Mật Khẩu Mới</label>
+          <input type="password" id="newPassword" placeholder="Nhập mật khẩu mới" required>
         </div>
+        <div class="form-group">
+          <label>Xác Nhận Mật Khẩu Mới</label>
+          <input type="password" id="confirmPassword" placeholder="Nhập lại mật khẩu mới" required>
+        </div>
+        <button type="submit">Xác Nhận Đổi Mật Khẩu</button>
+      </form>
+      <p id="pwdMsg" class="msg-error"></p>
+    </div>
 
-        <div class="controls">
-          <select id="monthSelect"></select>
-          <button id="loadBtn" class="btn primary">Xem phiếu</button>
+    <!-- View Bảng Lương -->
+    <div id="dashboardCard" class="card hidden wide">
+      <div class="header-bar">
+        <div>
+          <h2 id="userInfo">Phiếu Lương Nhân Viên</h2>
+          <span id="userSubInfo" class="badge"></span>
+        </div>
+        <div>
+          <button id="btnAdmin" class="btn-admin hidden">Reset Mật Khẩu (Admin)</button>
+          <button id="btnLogout" class="btn-logout">Đăng Xuất</button>
         </div>
       </div>
 
-      <div id="payMsg" class="message"></div>
+      <div class="filter-bar">
+        <label>Chọn Kỳ Lương: </label>
+        <select id="selectPayMonth"></select>
+      </div>
 
-      <article id="payslip" class="panel hidden"></article>
-    </section>
+      <div id="payrollDetail" class="payroll-detail"></div>
+    </div>
 
-    <section class="panel admin-panel">
-      <details>
-        <summary>Quản trị viên</summary>
-
-        <label for="adminPassword">Mật khẩu Admin</label>
-        <input id="adminPassword" type="password">
-
-        <button id="adminLoginBtn" class="btn secondary">
-          Đăng nhập Admin
-        </button>
-
-        <div id="adminPanel" class="hidden">
-          <hr>
-
-          <label for="resetUsername">Số Căn cước nhân viên</label>
-          <input id="resetUsername" inputmode="numeric">
-
-          <button id="resetBtn" class="btn danger">
-            Reset mật khẩu
-          </button>
-
-          <p class="muted">
-            Sau reset, mật khẩu tạm thời là Mã nhân viên.
-            Nhân viên bắt buộc đổi mật khẩu khi đăng nhập.
-          </p>
+    <!-- Modal Admin Reset -->
+    <div id="adminModal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Admin: Reset Mật Khẩu Nhân Viên</h3>
+        <div class="form-group">
+          <label>Số CCCD Nhân Viên Cần Reset:</label>
+          <input type="text" id="targetCitizenId" placeholder="Nhập CCCD nhân viên">
         </div>
+        <div class="modal-actions">
+          <button id="btnConfirmReset">Reset Về Mã NV</button>
+          <button id="btnCloseAdmin" class="btn-secondary">Đóng</button>
+        </div>
+        <p id="adminMsg" class="msg-error"></p>
+      </div>
+    </div>
+  </div>
 
-        <div id="adminMsg" class="message"></div>
-      </details>
-    </section>
-
-  </main>
-
-  <footer>Payroll Portal © 2026</footer>
-</div>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
