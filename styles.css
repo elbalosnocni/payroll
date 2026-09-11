@@ -49,3 +49,17 @@ footer{text-align:center;color:#64748b;font-size:13px;padding:25px 0}
   .controls{min-width:0}
   .employee-card{grid-template-columns:1fr}
 }
+
+.spinner{
+  width:14px;
+  height:14px;
+  display:inline-block;
+  vertical-align:-2px;
+  margin-right:8px;
+  border:2px solid currentColor;
+  border-right-color:transparent;
+  border-radius:50%;
+  animation:payroll-spin .7s linear infinite;
+}
+button[aria-busy="true"]{cursor:wait;opacity:.85}
+@keyframes payroll-spin{to{transform:rotate(360deg)}}

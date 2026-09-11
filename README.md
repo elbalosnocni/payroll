@@ -1,153 +1,280 @@
-# Payroll Portal – FINAL Optimized 2026
+# Payroll Portal – Optimized 2026 (FIXED)
 
-## Bộ file
+Bản này đã rà soát toàn bộ `GAS + GitHub Pages + VBA` và sửa các lỗi quan trọng trong ZIP gốc.
 
-- `gas/Code.gs` — Google Apps Script API/backend
-- `web/index.html` — GitHub Pages UI
-- `web/app.js` — frontend logic
-- `web/styles.css` — responsive UI
-- `vba/SyncPayroll.bas` — đồng bộ Excel XLSB → Google Sheets
-- `README.md` — hướng dẫn triển khai
+## Các lỗi quan trọng đã sửa
 
-## Các lỗi đã kiểm tra và sửa
+### 1. Lỗi lớn: Users không được tạo/cập nhật khi đồng bộ Payroll
+ZIP gốc có hàm `syncUsers_()` nhưng không gọi hàm này trong `syncPayroll_()`.
 
-### 1. VBA vô tình đọc cả dòng tiêu đề
-Bản cũ bắt đầu vòng lặp từ row 1, nên header `Mã NV / Họ tên` có thể bị xem như một nhân viên.
+Hậu quả:
+- Salary có dữ liệu nhưng Sheet `Users` có thể không có nhân viên.
+- Nhân viên mới không đăng nhập được.
+- Mã nhân viên/CCCD mới không tự đồng bộ sang Users.
 
-**Bản FINAL:** Salary và DSCNV đều xử lý dữ liệu từ row 2.
+**Bản FIXED:** mỗi batch Payroll tự đồng bộ Users từ `CitizenID + EmployeeID + FullName`.
+- Nhân viên mới: tạo User.
+- Nhân viên cũ: cập nhật Mã NV/Họ tên/Active.
+- **Không ghi đè PasswordHash/PasswordSalt**, nên mật khẩu nhân viên đã đổi vẫn được giữ.
+- Đồng bộ lặp lại vẫn an toàn.
 
-### 2. Đồng bộ batch có nguy cơ sai dữ liệu khi retry / chạy song song
-Bản cũ chỉ dùng `LockService` trong từng request. Lock không tồn tại xuyên suốt toàn bộ chuỗi batch.
+### 2. CCCD giữ số 0 đầu
+GAS định dạng `Users A:B` và `Salary D:F` là Text.
 
-**Bản FINAL:** GAS có trạng thái sync theo `Factory + PayMonth`:
-- Batch 1 chỉ clear dữ liệu đúng kỳ đúng Factory một lần.
+VBA:
+- loại dấu `'` đầu CCCD;
+- nếu nguồn vô tình biến CCCD thành số 11 chữ số, bản FIXED tự thêm `0` phía trước;
+- tốt nhất vẫn phải giữ cột H của `DSCNV` là Text.
+
+> Nếu Excel đã mất nhiều chữ số do số quá dài/định dạng sai trước khi VBA đọc, không thể khôi phục chính xác bằng phần mềm.
+
+### 3. Đăng nhập không lưu thông tin cũ trên giao diện
+GitHub Pages không lưu token/localStorage.
+
+Bản FIXED:
+- xóa CCCD/mật khẩu khi logout;
+- xóa form khi tải trang;
+- xử lý `pageshow` để tránh dữ liệu cũ từ browser back-forward cache;
+- tắt autocomplete ở các ô nhạy cảm.
+
+### 4. Loading rõ ràng
+Các nút:
+- Đăng nhập
+- Đổi mật khẩu
+- Xem phiếu
+- Đăng nhập Admin
+- Reset mật khẩu
+
+đều có spinner + trạng thái disabled trong lúc gọi API.
+
+### 5. Hiển thị kỳ lương
+Giá trị API vẫn là `MM-YYYY`.
+
+Giao diện hiển thị thân thiện:
+`Tháng 08/2026`
+
+Ngày 10/09/2026 chạy VBA sẽ tự tính:
+`08-2026`.
+
+### 6. Join Salary ↔ DSCNV
+Ưu tiên:
+1. Mã nhân viên `D`
+2. Nếu không tìm thấy, dùng Họ tên `B`
+
+DSCNV:
+- B = Họ tên
+- D = Mã NV
+- H = CCCD
+- AF = Phòng ban
+- AG = Bộ phận
+- AH = Chức vụ
+
+Salary:
+- D = Mã NV
+- CF = Họ tên
+
+### 7. Batch sync
+GAS vẫn giữ cơ chế:
+- Batch 1 chỉ clear đúng `Factory + PayMonth`.
 - Batch sau phải đi đúng thứ tự.
-- Retry cùng `BatchID` không clear lại dữ liệu.
-- Không cho một `BatchID` khác ghi đè một sync đang chạy.
-- Có TTL trạng thái để tránh bị khóa vĩnh viễn nếu máy đồng bộ chết giữa chừng.
-
-### 3. Clear dữ liệu cũ tạo rất nhiều dòng trống
-Bản cũ dùng `clearContent()` nên sau nhiều lần đồng bộ, Sheet Salary có thể phình ra rất nhiều dòng rỗng.
-
-**Bản FINAL:** xóa các dòng thuộc đúng `Factory + PayMonth` từ dưới lên, sau đó batch mới ghi lại gọn hơn.
-
-### 4. CCCD / EmployeeID phải giữ số 0 đầu
-GAS đặt các cột định danh thành Text:
-- Users: A:B
-- Salary: D:F
-
-VBA vẫn đọc CCCD từ DSCNV H và loại bỏ dấu `'` đầu chuỗi trước khi gửi.
-
-**Lưu ý quan trọng:** nếu file nguồn DSCNV đã lưu CCCD dạng số và Excel đã làm mất số 0 từ trước thì VBA không thể khôi phục số 0 đó. Tốt nhất cột H của DSCNV phải là Text.
-
-### 5. Không cho chạy sync nếu vẫn dùng API key placeholder
-VBA sẽ dừng trước khi gửi nếu còn:
-`PUT_YOUR_RANDOM_SYNC_API_KEY_HERE`
-
-### 6. JSON từ VBA an toàn hơn
-Đã bổ sung xử lý thêm các ký tự điều khiển JSON như Backspace và Form Feed.
-
-### 7. Setup Google Sheet
-Đã thêm:
-`setupSystem()`
-
-Chạy hàm này một lần sau khi cài Code.gs để tự:
-- tạo Users / Salary / SyncLog nếu thiếu
-- tạo/sửa header
-- định dạng các cột ID dạng Text
-- freeze dòng header
-- auto resize cột
-
-### 8. Payslip vẫn kiểm tra quyền ở server
-Frontend không thể tự sửa EmployeeID để xem lương người khác. GAS lấy EmployeeID từ User đang đăng nhập rồi mới truy vấn Salary.
-
-### 9. Bắt buộc đổi mật khẩu lần đầu / sau Admin reset
-Logic này vẫn được giữ và kiểm tra ở server.
+- Một `BatchID` khác không được ghi đè sync đang chạy.
+- Có TTL chống khóa vĩnh viễn.
+- Retry cùng batch là an toàn theo trạng thái sync.
 
 ---
 
-# Cài đặt GAS
+# 1. Cấu trúc
 
-## 1. Dán Code.gs
+```text
+Payroll_Portal_Optimized_2026_FIXED/
+├── README.md
+├── gas/
+│   └── Code.gs
+├── web/
+│   ├── index.html
+│   ├── app.js
+│   └── styles.css
+└── vba/
+    └── SyncPayroll.bas
+```
 
-Mở Google Apps Script và thay toàn bộ `Code.gs` bằng file:
+---
+
+# 2. Google Apps Script
+
+Dán toàn bộ:
 
 `gas/Code.gs`
 
-## 2. Script Properties
+vào Apps Script.
 
-Vào:
-
-**Project Settings → Script Properties**
+## Script Properties
 
 Tạo:
 
-- `SPREADSHEET_ID` = ID Google Sheet chứa payroll
-- `SYNC_API_KEY` = một chuỗi ngẫu nhiên dài, ví dụ tối thiểu 32 ký tự
+```text
+SPREADSHEET_ID = ID Google Sheet
+SYNC_API_KEY   = chuỗi ngẫu nhiên tối thiểu 32 ký tự
+```
 
-Không dùng API key mẫu trong README/VBA.
+**Không dùng API key đang nằm trong ZIP cũ.**
 
-## 3. Chạy setupSystem()
+API key trong VBA có thể bị người có quyền xem file Excel/VBA đọc được, vì vậy đây chỉ là lớp bảo vệ endpoint đồng bộ, không phải bí mật tuyệt đối.
 
-Trong Apps Script chọn:
+## Setup
 
-`setupSystem`
+Chạy một lần:
 
-và Run một lần.
+```text
+setupSystem()
+```
 
-## 4. Tạo mật khẩu Admin
+Hệ thống tự tạo:
+
+```text
+Users
+Salary
+SyncLog
+```
+
+## Tạo Admin
 
 Chạy:
 
-`setAdminPassword("MAT_KHAU_ADMIN_MOI")`
+```text
+setAdminPassword("MAT_KHAU_ADMIN_CUA_BAN")
+```
 
-Ví dụ mật khẩu thực tế phải do bạn tự đặt.
+Không ghi mật khẩu thật vào README hoặc mã nguồn.
 
-## 5. Deploy Web App
+---
+
+# 3. Deploy GAS
+
+Deploy Web App:
 
 - Execute as: **Me**
 - Who has access: **Anyone**
 
-Sau khi deploy, copy URL `/exec`.
+Sau đó lấy URL `/exec`.
 
-Nếu URL deployment thay đổi, sửa cả:
+Cập nhật URL tại:
 
-- `web/app.js`
-- `vba/SyncPayroll.bas`
+```text
+web/app.js
+vba/SyncPayroll.bas
+```
+
+**Lưu ý:** URL GAS trong ZIP này đang giữ URL bạn đã cung cấp. Nếu bạn redeploy GAS và URL thay đổi, phải sửa cả 2 file trên.
 
 ---
 
-# Google Sheets
+# 4. Google Sheets
 
 ## Users
 
-Các cột:
+```text
+Username
+EmployeeID
+FullName
+PasswordHash
+PasswordSalt
+MustChangePassword
+Active
+UpdatedAt
+```
 
-`Username | EmployeeID | FullName | PasswordHash | PasswordSalt | MustChangePassword | Active | UpdatedAt`
+Username = CCCD.
 
-Username hiện được thiết kế là **CCCD**.
+Mật khẩu:
+- lần đầu = Mã NV;
+- sau khi đổi = SHA-256 với salt riêng;
+- Admin reset = Mã NV + bắt buộc đổi lại.
 
 ## Salary
 
-Không tự ý đổi thứ tự 44 cột mà Code.gs đang sử dụng.
+44 cột theo `SALARY_HEADERS` trong `Code.gs`.
 
-Khóa dữ liệu:
+Khóa logic:
 
-`Factory + PayMonth + EmployeeID`
+```text
+Factory + PayMonth + EmployeeID
+```
 
 ## SyncLog
 
 Ghi từng batch:
 
-`UpdatedAt | Factory | PayMonth | BatchID | BatchNo | TotalBatches | Rows | Inserted | Updated | Status | Message`
+```text
+UpdatedAt
+Factory
+PayMonth
+BatchID
+BatchNo
+TotalBatches
+Rows
+Inserted
+Updated
+Status
+Message
+```
+
+`UpdatedAt` dùng:
+
+```text
+dd/MM/yyyy HH:mm:ss
+```
+
+Timezone:
+
+```text
+Asia/Ho_Chi_Minh
+```
 
 ---
 
-# VBA
+# 5. Nguồn Excel
 
-Mở VBA Editor → Import:
+## Snack
 
-`vba/SyncPayroll.bas`
+```text
+\192.168.0.253n hr\SALARY - 2014 - 2015\VNLWW\YYYY\SALARY MM-YYYY.xlsb
+```
+
+## Flexible
+
+```text
+\192.168.0.253n hr\SALARY - 2014 - 2015\Printing line\YYYY\PRINTING LINE MM-YYYY.xlsb
+```
+
+Password XLSB:
+
+```text
+1234
+```
+
+VBA tự lấy **tháng trước**.
+
+Ví dụ:
+
+```text
+10/09/2026
+    ↓
+08-2026
+    ↓
+2026\SALARY 08-2026.xlsb
+2026\PRINTING LINE 08-2026.xlsb
+```
+
+---
+
+# 6. Macro VBA
+
+Import:
+
+```text
+vba/SyncPayroll.bas
+```
 
 Sửa:
 
@@ -155,78 +282,245 @@ Sửa:
 Private Const SYNC_API_KEY As String = "PUT_YOUR_RANDOM_SYNC_API_KEY_HERE"
 ```
 
-thành API key thật giống `SYNC_API_KEY` trong Script Properties.
+thành đúng giá trị `SYNC_API_KEY` trong Script Properties.
 
-## Macro
+## Macro chính
 
-- `SyncBothFactories` — đồng bộ Snack + Flexible
-- `SyncSnackOnly` — chỉ Snack
-- `SyncFlexibleOnly` — chỉ Flexible
+```text
+SyncBothFactories
+```
 
-Kỳ lương mặc định là **tháng trước**.
+Đồng bộ:
+- Snack
+- Flexible
 
-Ví dụ ngày 10/09/2026 → `08-2026`.
+Macro riêng:
 
----
+```text
+SyncSnackOnly
+SyncFlexibleOnly
+```
 
-# Nguồn dữ liệu
+Macro kiểm tra đường dẫn:
 
-### Snack
+```text
+CheckPreviousPayrollFiles
+```
 
-`\\192.168.0.253\vn hr\SALARY - 2014 - 2015\VNLWW\YYYY\SALARY MM-YYYY.xlsb`
-
-### Flexible
-
-`\\192.168.0.253\vn hr\SALARY - 2014 - 2015\Printing line\YYYY\PRINTING LINE MM-YYYY.xlsb`
-
-Password XLSB hiện giữ theo bản gốc:
-
-`1234`
-
-Nếu password file nguồn thay đổi, sửa `XLS_PASSWORD` trong VBA.
+Macro này không upload dữ liệu; chỉ kiểm tra file kỳ lương tháng trước có tồn tại hay không.
 
 ---
 
-# DSCNV mapping
+# 7. Dữ liệu Salary
 
-- D = Mã NV
-- B = Họ tên
-- H = CCCD
-- AF = Phòng ban
-- AG = Bộ phận
-- AH = Chức vụ
+## Thông tin nhân viên
 
-Join:
+```text
+CF = Họ tên
+D  = Mã NV
+```
 
-1. Mã NV trước
-2. Họ tên làm fallback
+## Thu nhập
+
+```text
+AR = Tổng các khoản thu nhập
+AN = Lương tháng
+F  = Lương cơ bản
+X  = Tiền khác
+Y  = Tiền kỷ luật
+Z  = Gắn bó 2 năm
+AA = Gắn bó 5 năm
+AB = Gắn bó 10 năm
+AC = Tiền nhà ở
+AD = Tiền đi lại
+AE = Thưởng chuyên cần
+AQ = Hoa hồng / thưởng vượt định mức
+AF = Trợ cấp thôi việc + phép năm còn lại
+```
+
+## Tăng ca
+
+```text
+AO = Lương làm ngoài giờ/ngày nghỉ/ca đêm
+L  = Giờ ngoài giờ
+M  = Giờ ngày nghỉ
+N  = Giờ ngoài giờ ngày nghỉ
+P  = Giờ tăng ca đêm ngày nghỉ
+R  = Giờ ngày lễ
+S  = Giờ ngoài giờ ngày lễ
+T  = Giờ tăng ca đêm ngày lễ
+U  = Ngày làm ca đêm
+Q  = Giờ tăng ca đêm
+```
+
+## Khấu trừ
+
+```text
+AG = BHXH
+AH = BHYT
+AI = BHTN
+AT = Thuế TNCN
+AK = Tạm ứng
+AJ = Khấu trừ khác
+```
+
+## Thực lĩnh
+
+```text
+AW = Lương thực lĩnh
+```
 
 ---
 
-# Kiểm tra trước khi chạy thật
+# 8. Định dạng
 
-1. Chạy `setupSystem()`.
-2. Kiểm tra Users / Salary / SyncLog.
-3. Đặt `SYNC_API_KEY`.
-4. Đặt Admin password.
-5. Deploy lại Web App.
-6. Cập nhật GAS URL trong `app.js` và VBA.
-7. Chạy `SyncSnackOnly` với một kỳ test.
-8. Kiểm tra SyncLog.
-9. Kiểm tra Salary không có header bị import thành nhân viên.
-10. Kiểm tra CCCD bắt đầu bằng `0`.
-11. Đăng nhập bằng CCCD.
-12. Kiểm tra chỉ xem được phiếu lương của chính mình.
-13. Thử retry / chạy lại cùng kỳ để kiểm tra không bị nhân đôi.
+Tiền:
+- hiển thị VND theo `vi-VN`;
+- có dấu phân cách hàng nghìn.
 
-## Security
+Ngày/giờ:
+```text
+dd/MM/yyyy HH:mm:ss
+```
 
-API key nằm trong VBA nên người có quyền xem VBA vẫn có thể lấy key. Vì vậy đây là **sync gate**, không phải cơ chế bí mật tuyệt đối.
+Số ngày / số giờ:
+- tối đa 2 số thập phân.
 
-Nếu hệ thống được đưa vào production quy mô lớn, nên chuyển quá trình sync sang một service/server được kiểm soát thay vì phân phối API key trong nhiều file Excel.
+CCCD:
+- xử lý dạng Text;
+- không tự bỏ số 0 đầu.
+
+---
+
+# 9. Luồng đăng nhập
+
+```text
+CCCD + mật khẩu
+       ↓
+GAS kiểm tra Users
+       ↓
+Mật khẩu lần đầu = Mã NV
+       ↓
+mustChangePassword = TRUE
+       ↓
+bắt buộc đổi mật khẩu
+       ↓
+SHA-256 + Salt
+       ↓
+PasswordHash / PasswordSalt
+       ↓
+xem phiếu lương
+```
+
+Sau Admin Reset:
+
+```text
+Admin reset
+    ↓
+Password = Mã NV
+    ↓
+MustChangePassword = TRUE
+    ↓
+nhân viên đăng nhập
+    ↓
+bắt buộc đổi mật khẩu
+```
+
+---
+
+# 10. Bảo mật
+
+Frontend **không quyết định quyền xem lương**.
+
+GAS lấy:
+
+```text
+token → Users → EmployeeID
+```
+
+sau đó mới tìm:
+
+```text
+PayMonth + EmployeeID
+```
+
+Do đó nhân viên không thể sửa JavaScript để truyền EmployeeID của người khác rồi xem phiếu.
+
+Không lưu:
+- CCCD
+- mật khẩu
+- token
+
+vào localStorage.
+
+---
+
+# 11. Kiểm tra trước khi chạy thật
+
+Theo thứ tự:
+
+1. Dán `Code.gs`.
+2. Tạo Script Properties.
+3. Chạy `setupSystem()`.
+4. Chạy `setAdminPassword(...)`.
+5. Deploy Web App.
+6. Cập nhật GAS URL ở `app.js` và `SyncPayroll.bas`.
+7. Đặt `SYNC_API_KEY` thật.
+8. Import `SyncPayroll.bas`.
+9. Chạy `CheckPreviousPayrollFiles`.
+10. Chạy `SyncSnackOnly`.
+11. Kiểm tra `SyncLog`.
+12. Kiểm tra `Salary`.
+13. Kiểm tra `Users`.
+14. Kiểm tra CCCD có số 0 đầu.
+15. Đăng nhập bằng CCCD + Mã NV.
+16. Đổi mật khẩu.
+17. Đăng xuất.
+18. Đăng nhập lại bằng mật khẩu mới.
+19. Kiểm tra chỉ xem được phiếu của chính mình.
+20. Admin reset thử một tài khoản test.
+
+---
+
+# 12. Lưu ý về ngày 10
+
+VBA tự tính **tháng trước**, không phụ thuộc việc máy chạy đúng ngày 10.
+
+Vì vậy:
+
+```text
+09/09/2026 → kỳ 08-2026
+10/09/2026 → kỳ 08-2026
+11/09/2026 → kỳ 08-2026
+```
+
+Nếu yêu cầu nghiệp vụ bắt buộc **chỉ được phép chạy đúng ngày 10**, có thể thêm khóa ngày vào macro. Bản hiện tại không khóa để HR vẫn có thể chạy lại/recovery khi ngày 10 gặp lỗi mạng hoặc file chưa sẵn sàng.
+
+---
+
+# 13. Khuyến nghị quan trọng
+
+API URL bạn cung cấp có thể công khai vì nó là Web App URL.
+
+`SYNC_API_KEY` thì **không nên dùng lại key đã từng gửi trong chat hoặc nằm trong file cũ**.
+
+Hãy tạo key mới trong Script Properties và sửa VBA.
+
+---
 
 ## Phiên bản
 
-`Payroll Portal – FINAL Optimized 2026`
+**Payroll Portal – Optimized 2026 FIXED**
 
-Mục tiêu: ổn định hơn khi sync batch, tránh header giả, giảm dòng trống, bảo toàn ID dạng text và kiểm soát thứ tự batch.
+Các trọng điểm của bản này:
+
+- sửa lỗi Users không được sync;
+- bảo toàn mật khẩu đã đổi;
+- tự tạo User lần đầu từ dữ liệu Payroll;
+- giữ CCCD dạng Text;
+- phục hồi CCCD 11 số → 12 số bằng `0` trong trường hợp nguồn bị mất số 0 đầu;
+- loading spinner;
+- không giữ thông tin đăng nhập cũ;
+- hiển thị kỳ lương `Tháng MM/YYYY`;
+- giữ cơ chế batch/retry;
+- có macro kiểm tra file nguồn trước khi sync.

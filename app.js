@@ -8,8 +8,13 @@ const state = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+  clearLoginForm();
   buildMonthList();
   bindEvents();
+});
+
+window.addEventListener("pageshow", event => {
+  if (event.persisted) clearLoginForm();
 });
 
 const $ = id => document.getElementById(id);
@@ -393,12 +398,20 @@ async function adminReset() {
   }
 }
 
+function clearLoginForm() {
+  const ids = ["username","password","adminPassword","resetUsername"];
+  ids.forEach(id => {
+    const el = $(id);
+    if (el) el.value = "";
+  });
+}
+
 function logout() {
   state.token = "";
   state.user = null;
   state.adminToken = "";
 
-  $("password").value = "";
+  clearLoginForm();
   $("newPassword").value = "";
   $("newPassword2").value = "";
   $("payslip").classList.add("hidden");
@@ -440,10 +453,25 @@ function setBusy(id,busy,text) {
   if (!btn) return;
 
   if (!btn.dataset.originalText)
-    btn.dataset.originalText=btn.textContent;
+    btn.dataset.originalText=btn.textContent.trim();
 
   btn.disabled=busy;
-  btn.textContent=busy ? text : btn.dataset.originalText;
+  btn.setAttribute("aria-busy", busy ? "true" : "false");
+
+  if (busy) {
+    btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${escapeHtml(text)}`;
+  } else {
+    btn.textContent = btn.dataset.originalText;
+  }
+}
+
+function escapeHtml(v) {
+  return String(v ?? "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
 }
 
 function friendlyError(code) {
@@ -463,7 +491,16 @@ function friendlyError(code) {
     SERVER_ERROR:"Máy chủ xảy ra lỗi.",
     INVALID_API_KEY:"API key đồng bộ không hợp lệ.",
     EMPTY_BATCH:"Batch không có dữ liệu.",
-    API_TIMEOUT:"Máy chủ phản hồi quá lâu. Vui lòng thử lại."
+    API_TIMEOUT:"Máy chủ phản hồi quá lâu. Vui lòng thử lại.",
+    SYNC_IN_PROGRESS:"Đang có một lần đồng bộ khác cho kỳ lương này. Vui lòng chờ hoàn tất.",
+    SYNC_STATE_MISSING:"Phiên đồng bộ đã hết hạn hoặc thiếu batch trước đó.",
+    BATCH_OUT_OF_ORDER:"Batch đồng bộ không đúng thứ tự.",
+    TOTAL_BATCHES_MISMATCH:"Tổng số batch không khớp.",
+    FIRST_BATCH_REQUIRED:"Batch đầu tiên chưa được đánh dấu đúng.",
+    INVALID_FACTORY:"Xưởng không hợp lệ.",
+    INVALID_BATCH_NO:"Số batch không hợp lệ.",
+    INVALID_TOTAL_BATCHES:"Tổng số batch không hợp lệ.",
+    BATCH_ID_REQUIRED:"Thiếu mã phiên đồng bộ.",
   };
 
   return map[code] || "Có lỗi xảy ra. Vui lòng thử lại.";
@@ -486,7 +523,7 @@ function buildMonthList() {
 
     const option=document.createElement("option");
     option.value=value;
-    option.textContent=`${m}-${y}`;
+    option.textContent=`Tháng ${m}/${y}`;
 
     select.appendChild(option);
     d.setMonth(d.getMonth()-1);

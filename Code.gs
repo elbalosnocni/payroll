@@ -16,6 +16,7 @@
 const CFG = {
   TZ: 'Asia/Ho_Chi_Minh',
   SESSION_TTL_SECONDS: 1800,
+  SYNC_STATE_TTL_SECONDS: 3600,
   MIN_PASSWORD: 8,
   SHEETS: {
     USERS: 'Users',
@@ -208,6 +209,37 @@ function getPayslip_(p) {
 
 /* ================= ADMIN ================= */
 
+function setupSystem() {
+  const ss = getSS_();
+  if (!ss) throw new Error('Spreadsheet not found.');
+
+  const users = getSheet_(CFG.SHEETS.USERS);
+  const salary = getSheet_(CFG.SHEETS.SALARY);
+  const syncLog = getSheet_(CFG.SHEETS.SYNC_LOG);
+
+  ensureHeaders_(users,USER_HEADERS);
+  ensureHeaders_(salary,SALARY_HEADERS);
+  ensureHeaders_(syncLog,SYNC_HEADERS);
+
+  // Keep identifiers as text so leading zeroes in CitizenID are preserved.
+  users.getRange('A:B').setNumberFormat('@');
+  salary.getRange('D:F').setNumberFormat('@');
+
+  users.setFrozenRows(1);
+  salary.setFrozenRows(1);
+  syncLog.setFrozenRows(1);
+
+  users.autoResizeColumns(1,USER_HEADERS.length);
+  salary.autoResizeColumns(1,SALARY_HEADERS.length);
+  syncLog.autoResizeColumns(1,SYNC_HEADERS.length);
+
+  return {
+    ok:true,
+    spreadsheetId:ss.getId(),
+    sheets:[CFG.SHEETS.USERS,CFG.SHEETS.SALARY,CFG.SHEETS.SYNC_LOG]
+  };
+}
+
 function setAdminPassword(password) {
   password=String(password || '');
   if (password.length < CFG.MIN_PASSWORD)
@@ -282,19 +314,19 @@ function adminReset_(p) {
  */
 
 function syncPayroll_(p) {
-  const expected=PropertiesService.getScriptProperties()
+  const expected = PropertiesService.getScriptProperties()
     .getProperty('SYNC_API_KEY') || '';
 
   if (!expected || String(p.apiKey || '') !== expected)
     return {ok:false,error:'INVALID_API_KEY'};
 
-  const factory=String(p.factory || '').trim();
-  const payMonth=normalizePayMonth_(p.payMonth);
-  const rows=Array.isArray(p.rows) ? p.rows : [];
-  const batchId=String(p.batchId || '').trim();
-  const batchNo=Number(p.batchNo || 1);
-  const totalBatches=Number(p.totalBatches || 1);
-  const isFirstBatch=!!p.isFirstBatch;
+  const factory = String(p.factory || '').trim();
+  const payMonth = normalizePayMonth_(p.payMonth);
+  const rows = Array.isArray(p.rows) ? p.rows : [];
+  const batchId = String(p.batchId || '').trim();
+  const batchNo = Number(p.batchNo);
+  const totalBatches = Number(p.totalBatches);
+  const isFirstBatch = p.isFirstBatch === true;
 
   if (!['Snack','Flexible'].includes(factory))
     return {ok:false,error:'INVALID_FACTORY'};
@@ -308,23 +340,94 @@ function syncPayroll_(p) {
   if (!batchId)
     return {ok:false,error:'BATCH_ID_REQUIRED'};
 
-  if (!Number.isInteger(batchNo) || batchNo<1)
+  if (!Number.isInteger(batchNo) || batchNo < 1)
     return {ok:false,error:'INVALID_BATCH_NO'};
 
-  if (!Number.isInteger(totalBatches) || totalBatches<batchNo)
+  if (!Number.isInteger(totalBatches) ||
+      totalBatches < 1 ||
+      batchNo > totalBatches)
     return {ok:false,error:'INVALID_TOTAL_BATCHES'};
 
-  const lock=LockService.getScriptLock();
+  if (batchNo === 1 && !isFirstBatch)
+    return {ok:false,error:'FIRST_BATCH_REQUIRED'};
+
+  if (batchNo > 1 && isFirstBatch)
+    return {ok:false,error:'INVALID_FIRST_BATCH_FLAG'};
+
+  const lock = LockService.getScriptLock();
   lock.waitLock(30000);
 
   try {
-    const sheet=getSheet_(CFG.SHEETS.SALARY);
+    const sheet = getSheet_(CFG.SHEETS.SALARY);
     ensureHeaders_(sheet,SALARY_HEADERS);
 
-    if (isFirstBatch)
-      clearPeriod_(sheet,factory,payMonth);
+    const stateKey = syncStateKey_(factory,payMonth);
+    const props = PropertiesService.getScriptProperties();
+    const state = readSyncState_(props,stateKey);
 
-    const result=upsertPayrollRows_(sheet,factory,payMonth,rows);
+    // A sync is treated as a small state machine:
+    // 1) batch 1 clears the period once;
+    // 2) later batches must arrive in order;
+    // 3) retrying an already accepted batch is idempotent;
+    // 4) another batchId cannot overwrite an active sync.
+    if (batchNo === 1) {
+      if (state && state.batchId !== batchId) {
+        return {
+          ok:false,
+          error:'SYNC_IN_PROGRESS',
+          batchNo:state.lastBatchNo || 0,
+          totalBatches:state.totalBatches || totalBatches
+        };
+      }
+
+      if (!state || state.batchId !== batchId) {
+        clearPeriod_(sheet,factory,payMonth);
+        writeSyncState_(props,stateKey,{
+          batchId:batchId,
+          factory:factory,
+          payMonth:payMonth,
+          lastBatchNo:0,
+          totalBatches:totalBatches
+        });
+      }
+    } else {
+      if (!state || state.batchId !== batchId)
+        return {ok:false,error:'SYNC_STATE_MISSING'};
+
+      if (state.totalBatches !== totalBatches)
+        return {ok:false,error:'TOTAL_BATCHES_MISMATCH'};
+
+      if (batchNo > Number(state.lastBatchNo || 0) + 1)
+        return {
+          ok:false,
+          error:'BATCH_OUT_OF_ORDER',
+          expectedBatch:Number(state.lastBatchNo || 0) + 1
+        };
+    }
+
+    const result = upsertPayrollRows_(sheet,factory,payMonth,rows);
+
+    // Keep Users synchronized from the same authoritative Salary + DSCNV
+    // payload. PasswordHash/PasswordSalt are preserved for existing users.
+    const userResult = syncUsers_(rows);
+
+    const currentLast = state && state.batchId === batchId
+      ? Number(state.lastBatchNo || 0)
+      : 0;
+
+    if (batchNo > currentLast) {
+      writeSyncState_(props,stateKey,{
+        batchId:batchId,
+        factory:factory,
+        payMonth:payMonth,
+        lastBatchNo:batchNo,
+        totalBatches:totalBatches
+      });
+    }
+
+    if (batchNo === totalBatches) {
+      props.deleteProperty(stateKey);
+    }
 
     logSync_({
       factory:factory,
@@ -336,9 +439,7 @@ function syncPayroll_(p) {
       inserted:result.inserted,
       updated:result.updated,
       status:'OK',
-      message:isFirstBatch
-        ? 'FIRST_BATCH_CLEARED_PERIOD'
-        : 'BATCH_OK'
+      message:batchNo === totalBatches ? 'SYNC_COMPLETE' : 'BATCH_OK'
     });
 
     return {
@@ -350,8 +451,10 @@ function syncPayroll_(p) {
       totalBatches:totalBatches,
       inserted:result.inserted,
       updated:result.updated,
+      usersInserted:userResult.inserted,
+      usersUpdated:userResult.updated,
       received:rows.length,
-      complete:batchNo===totalBatches
+      complete:batchNo === totalBatches
     };
   } catch(err) {
     logSync_({
@@ -370,6 +473,39 @@ function syncPayroll_(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function syncStateKey_(factory,payMonth) {
+  return 'SYNC_STATE_' +
+    String(factory).trim().toUpperCase() + '_' +
+    normalizePayMonth_(payMonth).replace('-','_');
+}
+
+function readSyncState_(props,key) {
+  const raw = props.getProperty(key);
+  if (!raw) return null;
+
+  try {
+    const state = JSON.parse(raw);
+    if (!state || !state.batchId) return null;
+
+    const age = Date.now() - Number(state.updatedAt || 0);
+    if (!Number.isFinite(age) || age < 0 ||
+        age > CFG.SYNC_STATE_TTL_SECONDS * 1000) {
+      props.deleteProperty(key);
+      return null;
+    }
+
+    return state;
+  } catch (_) {
+    props.deleteProperty(key);
+    return null;
+  }
+}
+
+function writeSyncState_(props,key,state) {
+  state.updatedAt = Date.now();
+  props.setProperty(key,JSON.stringify(state));
 }
 
 function upsertPayrollRows_(sheet,factory,payMonth,rows) {
@@ -446,6 +582,7 @@ function upsertPayrollRows_(sheet,factory,payMonth,rows) {
 
   if(inserts.length){
     const s=sheet.getLastRow()+1;
+    sheet.getRange(s,4,inserts.length,3).setNumberFormat('@');
     sheet.getRange(
       s,1,inserts.length,SALARY_HEADERS.length
     ).setValues(inserts);
@@ -521,43 +658,40 @@ function normalizePayrollRow_(item,factory,payMonth) {
 }
 
 function clearPeriod_(sheet,factory,payMonth) {
-  const last=sheet.getLastRow();
-  if(last<2) return;
+  const last = sheet.getLastRow();
+  if (last < 2) return;
 
-  const data=sheet.getRange(2,1,last-1,2).getValues();
-  const rows=[];
+  const data = sheet.getRange(2,1,last-1,2).getValues();
+  const rows = [];
 
-  for(let i=0;i<data.length;i++){
-    if(
-      String(data[i][1]||'').trim()===factory &&
-      normalizePayMonth_(data[i][0])===payMonth
-    ){
-      rows.push(i+2);
+  for (let i=0;i<data.length;i++) {
+    if (
+      String(data[i][1] || '').trim() === factory &&
+      normalizePayMonth_(data[i][0]) === payMonth
+    ) {
+      rows.push(i + 2);
     }
   }
 
-  if(!rows.length) return;
+  if (!rows.length) return;
 
-  // Clear only matching rows, preserving other factory/month data.
-  let start=rows[0];
-  let count=1;
+  // Delete from bottom to top. This avoids leaving thousands of blank
+  // rows behind after every monthly resync.
+  let start = rows[rows.length - 1];
+  let count = 1;
 
-  for(let i=1;i<rows.length;i++){
-    if(rows[i]===rows[i-1]+1){
+  for (let i=rows.length - 2;i>=0;i--) {
+    if (rows[i] === start - 1) {
+      start = rows[i];
       count++;
     } else {
-      sheet.getRange(
-        start,1,count,SALARY_HEADERS.length
-      ).clearContent();
-
-      start=rows[i];
-      count=1;
+      sheet.deleteRows(start,count);
+      start = rows[i];
+      count = 1;
     }
   }
 
-  sheet.getRange(
-    start,1,count,SALARY_HEADERS.length
-  ).clearContent();
+  sheet.deleteRows(start,count);
 }
 
 function payrollKey_(factory,payMonth,employeeId) {
@@ -571,6 +705,7 @@ function payrollKey_(factory,payMonth,employeeId) {
 function syncUsers_(employees) {
   const sheet=getSheet_(CFG.SHEETS.USERS);
   ensureHeaders_(sheet,USER_HEADERS);
+  sheet.getRange('A:B').setNumberFormat('@');
 
   if(!Array.isArray(employees) || !employees.length)
     return {inserted:0,updated:0};
@@ -584,41 +719,47 @@ function syncUsers_(employees) {
 
   data.forEach((r,i)=>{
     const username=normalizeId_(r[0]);
-    if(username) map.set(username,i+2);
+    if(username && !map.has(username)) map.set(username,i);
   });
 
   let inserted=0;
   let updated=0;
+  const append=[];
 
   employees.forEach(emp=>{
     const username=normalizeId_(emp.CitizenID || emp.Username);
-    const employeeId=String(emp.EmployeeID || '').trim();
+    const employeeId=normalizeId_(emp.EmployeeID);
     const fullName=String(emp.FullName || '').trim();
     const active=emp.Active===undefined ? true : !!emp.Active;
 
     if(!username || !employeeId) return;
 
-    const row=map.get(username);
+    const idx=map.get(username);
 
-    if(row){
-      const v=sheet.getRange(
-        row,1,1,USER_HEADERS.length
-      ).getValues()[0];
+    if(idx !== undefined && idx < data.length){
+      const r=data[idx];
 
-      v[1]=employeeId;
-      v[2]=fullName;
-      v[6]=active;
-      v[7]=now_();
-
-      sheet.getRange(
-        row,1,1,USER_HEADERS.length
-      ).setValues([v]);
-
+      // Never overwrite the employee's custom password.
+      r[1]=employeeId;
+      r[2]=fullName;
+      r[6]=active;
+      r[7]=now_();
       updated++;
+    } else if(idx !== undefined){
+      // Same user appeared twice in this batch; update the pending append row.
+      const pendingIndex=idx - data.length;
+      const r=append[pendingIndex];
+      if(r){
+        r[1]=employeeId;
+        r[2]=fullName;
+        r[6]=active;
+        r[7]=now_();
+        updated++;
+      }
     } else {
       const salt=Utilities.getUuid();
 
-      const v=[
+      const r=[
         username,
         employeeId,
         fullName,
@@ -629,14 +770,22 @@ function syncUsers_(employees) {
         now_()
       ];
 
-      sheet.getRange(
-        sheet.getLastRow()+1,
-        1,1,USER_HEADERS.length
-      ).setValues([v]);
-
+      append.push(r);
+      // Prevent duplicate users within the same batch.
+      map.set(username,data.length + append.length - 1);
       inserted++;
     }
   });
+
+  if(data.length){
+    sheet.getRange(2,1,data.length,USER_HEADERS.length).setValues(data);
+  }
+
+  if(append.length){
+    const startRow=sheet.getLastRow()+1;
+    sheet.getRange(startRow,1,append.length,USER_HEADERS.length).setValues(append);
+    sheet.getRange(startRow,1,append.length,2).setNumberFormat('@');
+  }
 
   return {inserted:inserted,updated:updated};
 }
