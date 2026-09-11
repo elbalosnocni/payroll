@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tra cứu phiếu lương</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ===================== LOGIN ===================== -->
+  <div id="login-shell" class="login-shell">
+    <div class="login-card">
+      <h1>Tra cứu phiếu lương</h1>
+      <div class="sub">Đăng nhập bằng số Căn cước công dân</div>
+
+      <div id="login-error" class="form-error"></div>
+
+      <form id="login-form">
+        <div class="field">
+          <label for="login-cccd">Số Căn cước</label>
+          <input type="text" id="login-cccd" inputmode="numeric" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="login-password">Mật khẩu</label>
+          <input type="password" id="login-password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" id="login-btn" class="btn-primary">Đăng nhập</button>
+      </form>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:18px;">
+        Mật khẩu ban đầu là Mã nhân viên của bạn. Liên hệ Admin nếu quên mật khẩu.
+      </p>
+    </div>
+  </div>
+
+  <!-- ============= BẮT BUỘC ĐỔI MẬT KHẨU LẦN ĐẦU ============= -->
+  <div id="change-password-overlay" class="modal-overlay">
+    <div class="modal-card">
+      <h2>Đổi mật khẩu</h2>
+      <div class="sub">Đây là lần đăng nhập đầu tiên hoặc mật khẩu vừa được đặt lại. Vui lòng đổi mật khẩu để tiếp tục.</div>
+      <div id="change-password-error" class="form-error"></div>
+      <form id="change-password-form">
+        <div class="field">
+          <label for="cp-old">Mật khẩu hiện tại</label>
+          <input type="password" id="cp-old" required>
+        </div>
+        <div class="field">
+          <label for="cp-new">Mật khẩu mới</label>
+          <input type="password" id="cp-new" minlength="6" required>
+        </div>
+        <div class="field">
+          <label for="cp-confirm">Xác nhận mật khẩu mới</label>
+          <input type="password" id="cp-confirm" minlength="6" required>
+        </div>
+        <button type="submit" class="btn-primary">Cập nhật mật khẩu</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== APP SHELL ===================== -->
+  <div id="app-shell" class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">Tra cứu phiếu lương</div>
+
+      <div class="employee-card">
+        <div class="name" id="sidebar-name">—</div>
+        <div class="meta" id="sidebar-meta"></div>
+      </div>
+
+      <ul class="month-list" id="month-list"></ul>
+
+      <div class="sidebar-footer">
+        <button id="payroll-nav-btn" class="link-btn" style="display:none;">Xem phiếu lương</button>
+        <button id="admin-nav-btn" class="link-btn" style="display:none;">Trang quản trị (Admin)</button>
+        <button class="link-btn logout-btn">Đăng xuất</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- Nhân viên: xem phiếu lương -->
+      <div id="payroll-view" style="display:flex;">
+        <div id="payslip-container" style="width:100%;"></div>
+      </div>
+
+      <!-- Admin: bảng điều khiển -->
+      <div id="admin-view" style="display:none;">
+        <div class="admin-tabs">
+          <button data-tab="list" class="active">Danh sách nhân viên</button>
+          <button data-tab="search">Tìm nhân viên</button>
+          <button data-tab="sync">Trạng thái đồng bộ</button>
+          <button data-tab="audit">Audit log</button>
+        </div>
+
+        <div id="admin-panel-list" class="panel admin-panel">
+          <h2>Danh sách nhân viên</h2>
+          <div id="admin-employee-list"></div>
+        </div>
+
+        <div id="admin-panel-search" class="panel admin-panel" style="display:none;">
+          <h2>Tìm nhân viên</h2>
+          <form id="admin-search-form" class="search-row">
+            <input type="text" id="admin-search-input" placeholder="Tên, mã NV hoặc số CCCD...">
+            <button type="submit">Tìm</button>
+          </form>
+          <div id="admin-search-results"></div>
+        </div>
+
+        <div id="admin-panel-sync" class="panel admin-panel" style="display:none;">
+          <h2>Trạng thái đồng bộ dữ liệu</h2>
+          <div id="admin-sync-status"></div>
+        </div>
+
+        <div id="admin-panel-audit" class="panel admin-panel" style="display:none;">
+          <h2>Audit log</h2>
+          <div id="admin-audit-log"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
