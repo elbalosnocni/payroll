@@ -1,51 +1,34 @@
-*{box-sizing:border-box}
-:root{font-family:Arial,Helvetica,sans-serif;color:#1f2937;background:#f3f6f9}
-body{margin:0;background:#f3f6f9}
-.page{min-height:100vh;max-width:980px;margin:auto;padding:24px}
-.topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:22px}
-.topbar h1{margin:0;font-size:28px;color:#123a63}
-.topbar p{margin:5px 0 0;color:#64748b}
-.panel{background:#fff;border:1px solid #dbe3ea;border-radius:14px;padding:22px;box-shadow:0 5px 18px rgba(15,23,42,.05)}
-.login-panel{max-width:460px;margin:45px auto}
-.icon{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e8f1fb;color:#1d5f99;font-size:25px;font-weight:700}
-h2{margin:10px 0 14px;color:#123a63}
-label{display:block;font-size:14px;font-weight:700;margin:14px 0 7px}
-input,select{width:100%;border:1px solid #cbd5e1;border-radius:9px;padding:11px 12px;font-size:15px;background:#fff}
-input:focus,select:focus{outline:2px solid #bfdbfe;border-color:#60a5fa}
-.btn{border:0;border-radius:9px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer}
-.btn:disabled{opacity:.6;cursor:wait}
-.primary{background:#1769aa;color:#fff}
-.secondary{background:#e5e7eb;color:#1f2937}
-.danger{background:#b91c1c;color:#fff}
-.full{width:100%;margin-top:18px}
-.hidden{display:none!important}
-.muted{color:#64748b;font-size:14px}
-.message{min-height:22px;margin-top:12px;font-size:14px}
-.message.error{color:#b91c1c}
-.message.success{color:#15803d}
-.warning{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:12px;border-radius:9px;line-height:1.5}
-.user-panel{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:12px}
-.user-info{display:flex;flex-direction:column;gap:5px}
-.controls{display:flex;gap:8px;min-width:300px}
-.controls select{min-width:150px}
-.controls .btn{white-space:nowrap}
-.admin-panel{margin-top:20px}
-.admin-panel summary{cursor:pointer;font-weight:700;color:#123a63}
-.admin-panel hr{border:0;border-top:1px solid #e2e8f0;margin:18px 0}
-.employee-card{display:grid;grid-template-columns:1fr 1fr;gap:9px;background:#f8fafc;padding:14px;border-radius:10px}
-.payslip-head{margin-bottom:16px}
-.table-wrap{overflow-x:auto}
-.salary-table{width:100%;border-collapse:collapse}
-.salary-table th,.salary-table td{padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:left}
-.salary-table th:last-child,.salary-table td:last-child{text-align:right}
-.salary-table thead th{background:#f1f5f9}
-.salary-table .net-pay{font-weight:800;font-size:17px}
-footer{text-align:center;color:#64748b;font-size:13px;padding:25px 0}
-@media(max-width:700px){
-  .page{padding:12px}
-  .topbar{align-items:flex-start}
-  .topbar h1{font-size:22px}
-  .user-panel{flex-direction:column;align-items:stretch}
-  .controls{min-width:0}
-  .employee-card{grid-template-columns:1fr}
-}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+body { background-color: #f4f6f9; color: #333; display: flex; justify-content: center; min-height: 100vh; padding: 20px; }
+.container { width: 100%; max-width: 900px; margin: auto; }
+.card { background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.card.wide { max-width: 100%; }
+.hidden { display: none !important; }
+h2 { color: #1e3c72; margin-bottom: 15px; font-size: 20px; }
+.form-group { margin-bottom: 15px; }
+label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px; }
+input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; }
+button { width: 100%; padding: 12px; background: #1e3c72; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 15px; }
+button:hover { background: #2a5298; }
+.msg-error { color: #d9534f; margin-top: 10px; font-size: 13px; text-align: center; }
+.header-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+.btn-logout { background: #d9534f; width: auto; padding: 8px 15px; }
+.btn-admin { background: #f0ad4e; width: auto; padding: 8px 15px; margin-right: 10px; }
+.badge { background: #eef2f7; color: #1e3c72; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+.filter-bar { margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+.filter-bar select { width: 200px; }
+
+/* Styles Bảng Chi Tiết Lương */
+.payroll-section { margin-bottom: 20px; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+.payroll-section h3 { background: #f1f5f9; padding: 10px 15px; font-size: 15px; color: #1e3c72; border-bottom: 1px solid #e0e0e0; }
+.payroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1px; background: #e0e0e0; }
+.grid-item { background: #fff; padding: 10px 15px; display: flex; justify-content: space-between; font-size: 13px; }
+.grid-item span.val { font-weight: bold; color: #111; }
+.grid-item.highlight { background: #e8f4f8; font-size: 14px; }
+.grid-item.highlight span.val { color: #27ae60; font-size: 16px; }
+
+/* Modal Admin */
+.modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
+.modal-content { background: #fff; padding: 20px; border-radius: 8px; width: 100%; max-width: 400px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 15px; }
+.btn-secondary { background: #6c757d; }
