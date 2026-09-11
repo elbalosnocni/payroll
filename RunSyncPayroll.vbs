@@ -10,7 +10,7 @@ xl.AskToUpdateLinks = False
 Set wb = xl.Workbooks.Open("D:\vtc\github\SyncPayroll.xlsm", False, False)
 If Err.Number <> 0 Then xl.Quit : WScript.Quit 2
 Err.Clear
-xl.Run "SyncPayroll.RunSync"
+xl.Run "RunSync"
 If Err.Number <> 0 Then wb.Close False : xl.Quit : WScript.Quit 3
 wb.Save
 wb.Close False
