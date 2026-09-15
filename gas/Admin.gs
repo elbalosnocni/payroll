@@ -1,37 +1,425 @@
-function actionAdminListEmployees(p){
-  if(!requireAdmin(p.token))return errorResponse('Bạn không có quyền truy cập.','FORBIDDEN');
-  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_EMPLOYEES));
-  return successResponse({employees:rows.map(adminEmployeeView)});
-}
-function adminEmployeeView(r){return{cccd:maskCCCD(r.CCCD),maNV:String(r.MaNV),hoTen:String(r.HoTen||''),xuong:String(r.Xuong||''),phongBan:String(r.PhongBan||''),boPhan:String(r.BoPhan||''),chucVu:String(r.ChucVu||''),role:normalizeRole(r.Role),mustChangePassword:isTrue(r.MustChangePassword),updatedAt:String(r.UpdatedAt||'')};}
-function actionAdminSearchEmployee(p){
-  if(!requireAdmin(p.token))return errorResponse('Bạn không có quyền truy cập.','FORBIDDEN');
-  var k=normalizeText(p.keyword||''), kc=normalizeCCCD(p.keyword||''); if(!k&& !kc)return errorResponse('Vui lòng nhập từ khoá.','MISSING_FIELDS');
-  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_EMPLOYEES)).filter(function(r){
-    return normalizeText(r.HoTen).indexOf(k)!==-1 || normalizeText(r.MaNV).indexOf(k)!==-1 || (kc&&normalizeCCCD(r.CCCD).indexOf(kc)!==-1);
+function adminGetUsers_(
+  token,
+  search,
+  ipAddress
+) {
+  const admin =
+    requireAdminToken_(token);
+
+  const query =
+    normalizeString_(search)
+      .toLocaleLowerCase('vi-VN');
+
+  const sheet =
+    getSheet_(CONFIG.SHEETS.DATA);
+
+  if (sheet.getLastRow() < 2) {
+    return createResponse_(
+      true,
+      [],
+      'Không có nhân viên.',
+      'OK'
+    );
+  }
+
+  const headers =
+    getHeaders_(sheet);
+
+  const rows =
+    sheet
+      .getRange(
+        2,
+        1,
+        sheet.getLastRow() - 1,
+        headers.length
+      )
+      .getDisplayValues();
+
+  const result = [];
+
+  rows.forEach(function(row) {
+    const data =
+      rowsToObjects_(
+        headers,
+        [row]
+      )[0];
+
+    const employeeCode =
+      normalizeEmployeeCode_(
+        data.EmployeeCode
+      );
+
+    const fullName =
+      normalizeString_(
+        data.FullName
+      );
+
+    const cccd =
+      normalizeCCCD_(
+        data.CCCD
+      );
+
+    const matches =
+      !query ||
+      employeeCode
+        .toLocaleLowerCase('vi-VN')
+        .indexOf(query) >= 0 ||
+      fullName
+        .toLocaleLowerCase('vi-VN')
+        .indexOf(query) >= 0 ||
+      cccd.indexOf(query) >= 0 ||
+      normalizeString_(data.Department)
+        .toLocaleLowerCase('vi-VN')
+        .indexOf(query) >= 0;
+
+    if (matches) {
+      result.push({
+        employeeCode: employeeCode,
+        fullName: fullName,
+        cccd: cccd,
+        department: data.Department,
+        section: data.Section,
+        position: data.Position,
+        mustChangePassword:
+          String(data.MustChangePassword)
+            .toLowerCase() === 'true',
+        updatedAt: data.UpdatedAt
+      });
+    }
   });
-  return successResponse({results:rows.slice(0,100).map(adminEmployeeView)});
+
+  auditLog_(
+    'ADMIN',
+    admin.sub,
+    'ADMIN_GET_USERS',
+    query,
+    true,
+    ipAddress,
+    'Returned ' + result.length + ' users'
+  );
+
+  return createResponse_(
+    true,
+    result,
+    'Lấy danh sách nhân viên thành công.',
+    'OK'
+  );
 }
-function actionAdminResetPassword(p){
-  var s=requireAdmin(p.token); if(!s)return errorResponse('Bạn không có quyền truy cập.','FORBIDDEN');
-  var emp=findEmployeeByMaNV(p.maNV); if(!emp)return errorResponse('Không tìm thấy nhân viên.','NOT_FOUND');
-  var salt=generateSalt(),sh=getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
-  setField(sh,emp.__row,'PasswordSalt',salt);setField(sh,emp.__row,'PasswordHash',hashPassword(emp.MaNV,salt));setField(sh,emp.__row,'MustChangePassword',true);setField(sh,emp.__row,'UpdatedAt',formatDateVN(new Date()));
-  writeAudit(s.cccd,'ADMIN_RESET_PASSWORD',emp.MaNV,'Mật khẩu đặt lại về Mã NV');
-  return successResponse({message:'Đã reset mật khẩu cho '+emp.HoTen+'. Mật khẩu mới là Mã NV và bắt buộc đổi khi đăng nhập.'});
+
+
+function adminResetPassword_(
+  token,
+  employeeCode,
+  ipAddress
+) {
+  const admin =
+    requireAdminToken_(token);
+
+  const code =
+    normalizeEmployeeCode_(employeeCode);
+
+  if (!code) {
+    throw new Error('INVALID_EMPLOYEE_CODE');
+  }
+
+  const employee =
+    findEmployeeByCode_(code);
+
+  if (!employee) {
+    throw new Error('EMPLOYEE_NOT_FOUND');
+  }
+
+  const defaultPassword =
+    code;
+
+  const passwordRecord =
+    createPasswordRecord_(
+      defaultPassword
+    );
+
+  const sheet =
+    getSheet_(CONFIG.SHEETS.DATA);
+
+  const headers =
+    employee.headers;
+
+  const hashColumn =
+    findColumnIndex_(
+      headers,
+      'PasswordHash'
+    ) + 1;
+
+  const saltColumn =
+    findColumnIndex_(
+      headers,
+      'PasswordSalt'
+    ) + 1;
+
+  const mustChangeColumn =
+    findColumnIndex_(
+      headers,
+      'MustChangePassword'
+    ) + 1;
+
+  const updatedAtColumn =
+    findColumnIndex_(
+      headers,
+      'UpdatedAt'
+    ) + 1;
+
+  const updatedByColumn =
+    findColumnIndex_(
+      headers,
+      'UpdatedBy'
+    ) + 1;
+
+  const lock =
+    acquireScriptLock_(10000);
+
+  try {
+    sheet
+      .getRange(
+        employee.rowNumber,
+        hashColumn
+      )
+      .setValue(
+        passwordRecord.passwordHash
+      );
+
+    sheet
+      .getRange(
+        employee.rowNumber,
+        saltColumn
+      )
+      .setValue(
+        passwordRecord.passwordSalt
+      );
+
+    sheet
+      .getRange(
+        employee.rowNumber,
+        mustChangeColumn
+      )
+      .setValue(true);
+
+    sheet
+      .getRange(
+        employee.rowNumber,
+        updatedAtColumn
+      )
+      .setValue(
+        formatDateTime_(new Date())
+      );
+
+    sheet
+      .getRange(
+        employee.rowNumber,
+        updatedByColumn
+      )
+      .setValue(
+        'ADMIN:' + admin.sub
+      );
+  } finally {
+    lock.releaseLock();
+  }
+
+  auditLog_(
+    'ADMIN',
+    admin.sub,
+    'ADMIN_RESET_PASSWORD',
+    code,
+    true,
+    ipAddress,
+    'Password reset to employee code'
+  );
+
+  return createResponse_(
+    true,
+    {
+      employeeCode: code,
+      mustChangePassword: true
+    },
+    'Đã reset mật khẩu.',
+    'OK'
+  );
 }
-function actionAdminSyncStatus(p){
-  if(!requireAdmin(p.token))return errorResponse('Bạn không có quyền truy cập.','FORBIDDEN');
-  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS));rows.sort(function(a,b){return parseVNDate(b.LastSyncAt)-parseVNDate(a.LastSyncAt);});
-  return successResponse({syncStatus:rows});
+
+
+function adminGetAuditLogs_(
+  token,
+  search,
+  limit,
+  ipAddress
+) {
+  const admin =
+    requireAdminToken_(token);
+
+  const sheet =
+    getSheet_(CONFIG.SHEETS.AUDIT);
+
+  if (sheet.getLastRow() < 2) {
+    return createResponse_(
+      true,
+      [],
+      'Không có audit log.',
+      'OK'
+    );
+  }
+
+  const headers =
+    getHeaders_(sheet);
+
+  const rows =
+    sheet
+      .getRange(
+        2,
+        1,
+        sheet.getLastRow() - 1,
+        headers.length
+      )
+      .getDisplayValues();
+
+  const query =
+    normalizeString_(search)
+      .toLocaleLowerCase('vi-VN');
+
+  let max =
+    Number(limit || 200);
+
+  if (!isFinite(max)) {
+    max = 200;
+  }
+
+  max =
+    Math.max(
+      1,
+      Math.min(
+        500,
+        Math.floor(max)
+      )
+    );
+
+  const result = [];
+
+  for (
+    let index = rows.length - 1;
+    index >= 0 &&
+    result.length < max;
+    index--
+  ) {
+    const data =
+      rowsToObjects_(
+        headers,
+        [rows[index]]
+      )[0];
+
+    const searchable =
+      JSON.stringify(data)
+        .toLocaleLowerCase('vi-VN');
+
+    if (
+      !query ||
+      searchable.indexOf(query) >= 0
+    ) {
+      result.push({
+        timestamp: data.Timestamp,
+        actorType: data.ActorType,
+        actorId: data.ActorId,
+        action: data.Action,
+        target: data.Target,
+        success: data.Success,
+        details: data.Details
+      });
+    }
+  }
+
+  auditLog_(
+    'ADMIN',
+    admin.sub,
+    'ADMIN_GET_AUDIT',
+    query,
+    true,
+    ipAddress,
+    'Returned ' + result.length + ' audit rows'
+  );
+
+  return createResponse_(
+    true,
+    result,
+    'Lấy audit log thành công.',
+    'OK'
+  );
 }
-function actionAdminAuditLog(p){
-  if(!requireAdmin(p.token))return errorResponse('Bạn không có quyền truy cập.','FORBIDDEN');
-  var limit=Math.min(Math.max(Number(p.limit)||200,1),500),rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_AUDIT));rows.reverse();
-  return successResponse({logs:rows.slice(0,limit)});
-}
-function maskCCCD(v){var s=normalizeCCCD(v);return s.length<=4?s:'*'.repeat(s.length-4)+s.slice(-4);}
-function parseVNDate(s){
-  var m=String(s||'').match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/);
-  return m?new Date(+m[3],+m[2]-1,+m[1],+m[4],+m[5],+m[6]):new Date(0);
+
+
+function createInitialAdmin_(
+  username,
+  password
+) {
+  const user =
+    assertString_(
+      username,
+      'username',
+      3,
+      100
+    );
+
+  const pwd =
+    validatePassword_(password);
+
+  const existing =
+    findAdminByUsername_(user);
+
+  if (existing) {
+    throw new Error('ADMIN_ALREADY_EXISTS');
+  }
+
+  const record =
+    createPasswordRecord_(pwd);
+
+  const sheet =
+    getSheet_(CONFIG.SHEETS.ADMIN);
+
+  const headers =
+    getHeaders_(sheet);
+
+  const adminId =
+    randomToken_(24);
+
+  const row =
+    objectToRow_(
+      headers,
+      {
+        AdminId: adminId,
+        Username: user,
+        PasswordHash:
+          record.passwordHash,
+        PasswordSalt:
+          record.passwordSalt,
+        Active: true,
+        CreatedAt:
+          formatDateTime_(new Date()),
+        UpdatedAt:
+          formatDateTime_(new Date())
+      }
+    );
+
+  sheet
+    .appendRow(row);
+
+  auditLog_(
+    'SYSTEM',
+    'SYSTEM',
+    'CREATE_ADMIN',
+    user,
+    true,
+    '',
+    'Initial admin created'
+  );
+
+  return {
+    success: true,
+    adminId: adminId,
+    username: user
+  };
 }
