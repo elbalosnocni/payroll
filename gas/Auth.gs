@@ -1,74 +1,548 @@
-function actionLogin(p) {
-  var cccd=normalizeCCCD(p.cccd), password=String(p.password||'');
-  if(cccd.length<8 || !password) return errorResponse('Vui lòng nhập đầy đủ CCCD và mật khẩu.','MISSING_FIELDS');
+function findEmployeeByCCCD_(cccd) {
+  const normalizedCCCD = normalizeCCCD_(cccd);
 
-  var throttleKey='LOGIN_'+cccd;
-  var cache=CacheService.getScriptCache();
-  if(cache.get(throttleKey)==='BLOCK') return errorResponse('Đăng nhập thất bại quá nhiều lần. Vui lòng thử lại sau 15 phút.','RATE_LIMIT');
+  if (!isValidCCCD_(normalizedCCCD)) {
+    return null;
+  }
 
-  var emp=findEmployeeByCCCD(cccd);
-  if(!emp) { recordLoginFail(throttleKey); return errorResponse('Sai CCCD hoặc mật khẩu.','INVALID_LOGIN'); }
+  const sheet = getSheet_(CONFIG.SHEETS.DATA);
+  const headers = getHeaders_(sheet);
 
-  var valid=false;
-  if(emp.PasswordHash && emp.PasswordSalt) valid=safeCompare(hashPassword(password,String(emp.PasswordSalt)),String(emp.PasswordHash));
-  if(!valid) { recordLoginFail(throttleKey); return errorResponse('Sai CCCD hoặc mật khẩu.','INVALID_LOGIN'); }
-  cache.remove(throttleKey);
+  if (!headers.length || sheet.getLastRow() < 2) {
+    return null;
+  }
 
-  var token=newToken();
-  var session={cccd:cccd,maNV:String(emp.MaNV),role:normalizeRole(emp.Role),mustChangePassword:isTrue(emp.MustChangePassword),createdAt:Date.now()};
-  cache.put(tokenCacheKey(token),JSON.stringify(session),CONFIG.SESSION_TTL_SEC);
-  writeAudit(cccd,'LOGIN',emp.MaNV,'Đăng nhập thành công');
-  return successResponse({token:token,role:session.role,mustChangePassword:session.mustChangePassword,hoTen:emp.HoTen});
+  const cccdIndex = findColumnIndex_(headers, 'CCCD');
+
+  const values = sheet
+    .getRange(
+      2,
+      cccdIndex + 1,
+      sheet.getLastRow() - 1,
+      1
+    )
+    .getDisplayValues();
+
+  for (let index = 0; index < values.length; index++) {
+    const sheetCCCD = normalizeCCCD_(
+      values[index][0]
+    );
+
+    if (timingSafeEqual_(
+      sheetCCCD,
+      normalizedCCCD
+    )) {
+      const rowNumber = index + 2;
+
+      const row = sheet
+        .getRange(
+          rowNumber,
+          1,
+          1,
+          headers.length
+        )
+        .getValues()[0];
+
+      return {
+        rowNumber: rowNumber,
+        headers: headers,
+        data: rowsToObjects_(
+          headers,
+          [row]
+        )[0]
+      };
+    }
+  }
+
+  return null;
 }
-function recordLoginFail(key){
-  var cache=CacheService.getScriptCache(), n=Number(cache.get(key)||0)+1;
-  if(n>=CONFIG.MAX_LOGIN_ATTEMPTS) cache.put(key,'BLOCK',CONFIG.LOGIN_WINDOW_SEC);
-  else cache.put(key,String(n),CONFIG.LOGIN_WINDOW_SEC);
-}
-function isTrue(v){ return v===true || String(v).toLowerCase()==='true' || String(v)==='1'; }
-function normalizeRole(v){ return String(v||'EMPLOYEE').toUpperCase()==='ADMIN' ? 'ADMIN' : 'EMPLOYEE'; }
 
-function requireAuth(token){
-  if(!token) return null;
-  var raw=CacheService.getScriptCache().get(tokenCacheKey(token));
-  if(!raw) return null;
-  try{return JSON.parse(raw);}catch(e){return null;}
-}
-function requireAdmin(token){
-  var s=requireAuth(token); return s && s.role==='ADMIN' ? s : null;
-}
-function findEmployeeByCCCD(cccd){
-  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_EMPLOYEES));
-  cccd=normalizeCCCD(cccd);
-  return rows.filter(function(r){return normalizeCCCD(r.CCCD)===cccd;})[0] || null;
-}
-function findEmployeeByMaNV(maNV){
-  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_EMPLOYEES));
-  return rows.filter(function(r){return String(r.MaNV).trim()===String(maNV).trim();})[0] || null;
-}
-function actionChangePassword(p){
-  var s=requireAuth(p.token);
-  if(!s) return errorResponse('Phiên đăng nhập đã hết hạn.','SESSION_EXPIRED');
-  var oldPw=String(p.oldPassword||''), newPw=String(p.newPassword||''), confirm=String(p.confirmPassword||'');
-  if(!oldPw||!newPw||!confirm) return errorResponse('Vui lòng nhập đủ 3 trường mật khẩu.','MISSING_FIELDS');
-  if(newPw.length<8) return errorResponse('Mật khẩu mới phải có ít nhất 8 ký tự.','WEAK_PASSWORD');
-  if(newPw!==confirm) return errorResponse('Xác nhận mật khẩu không khớp.','PASSWORD_MISMATCH');
-  if(oldPw===newPw) return errorResponse('Mật khẩu mới phải khác mật khẩu hiện tại.','SAME_PASSWORD');
 
-  var emp=findEmployeeByCCCD(s.cccd);
-  if(!emp) return errorResponse('Không tìm thấy tài khoản.','NOT_FOUND');
-  if(!safeCompare(hashPassword(oldPw,String(emp.PasswordSalt)),String(emp.PasswordHash))) return errorResponse('Mật khẩu hiện tại không đúng.','INVALID_PASSWORD');
+function findEmployeeByCode_(employeeCode) {
+  const normalizedCode =
+    normalizeEmployeeCode_(employeeCode);
 
-  var salt=generateSalt(), hash=hashPassword(newPw,salt), sh=getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
-  setField(sh,emp.__row,'PasswordSalt',salt);
-  setField(sh,emp.__row,'PasswordHash',hash);
-  setField(sh,emp.__row,'MustChangePassword',false);
-  setField(sh,emp.__row,'UpdatedAt',formatDateVN(new Date()));
-  writeAudit(s.cccd,'CHANGE_PASSWORD',emp.MaNV,'Đổi mật khẩu thành công');
+  if (!normalizedCode) {
+    return null;
+  }
 
-  // session mới, cập nhật cờ mustChangePassword
-  var newToken=newToken(), ns={cccd:s.cccd,maNV:s.maNV,role:s.role,mustChangePassword:false,createdAt:Date.now()};
-  CacheService.getScriptCache().put(tokenCacheKey(newToken),JSON.stringify(ns),CONFIG.SESSION_TTL_SEC);
-  CacheService.getScriptCache().remove(tokenCacheKey(p.token));
-  return successResponse({token:newToken,mustChangePassword:false,message:'Đổi mật khẩu thành công.'});
+  const sheet = getSheet_(CONFIG.SHEETS.DATA);
+  const headers = getHeaders_(sheet);
+
+  if (!headers.length || sheet.getLastRow() < 2) {
+    return null;
+  }
+
+  const codeIndex =
+    findColumnIndex_(headers, 'EmployeeCode');
+
+  const values = sheet
+    .getRange(
+      2,
+      codeIndex + 1,
+      sheet.getLastRow() - 1,
+      1
+    )
+    .getDisplayValues();
+
+  for (let index = 0; index < values.length; index++) {
+    if (
+      normalizeEmployeeCode_(values[index][0]) ===
+      normalizedCode
+    ) {
+      const rowNumber = index + 2;
+
+      const row = sheet
+        .getRange(
+          rowNumber,
+          1,
+          1,
+          headers.length
+        )
+        .getValues()[0];
+
+      return {
+        rowNumber: rowNumber,
+        headers: headers,
+        data: rowsToObjects_(
+          headers,
+          [row]
+        )[0]
+      };
+    }
+  }
+
+  return null;
+}
+
+
+function loginUser_(cccd, password, ipAddress) {
+  try {
+    const normalizedCCCD = normalizeCCCD_(cccd);
+    const suppliedPassword = String(password || '');
+
+    if (!isValidCCCD_(normalizedCCCD)) {
+      return createResponse_(
+        false,
+        null,
+        'Thông tin đăng nhập không hợp lệ.',
+        'INVALID_CREDENTIALS'
+      );
+    }
+
+    if (
+      suppliedPassword.length < 1 ||
+      suppliedPassword.length > CONFIG.PASSWORD.MAX_LENGTH
+    ) {
+      return createResponse_(
+        false,
+        null,
+        'Thông tin đăng nhập không hợp lệ.',
+        'INVALID_CREDENTIALS'
+      );
+    }
+
+    const employee = findEmployeeByCCCD_(
+      normalizedCCCD
+    );
+
+    if (!employee) {
+      auditLog_(
+        'USER',
+        normalizedCCCD,
+        'LOGIN',
+        normalizedCCCD,
+        false,
+        ipAddress,
+        'Employee not found'
+      );
+
+      return createResponse_(
+        false,
+        null,
+        'Thông tin đăng nhập không hợp lệ.',
+        'INVALID_CREDENTIALS'
+      );
+    }
+
+    const data = employee.data;
+
+    const employeeCode =
+      normalizeEmployeeCode_(data.EmployeeCode);
+
+    const salt = normalizeString_(
+      data.PasswordSalt
+    );
+
+    const passwordHash = normalizeString_(
+      data.PasswordHash
+    );
+
+    const mustChangePassword =
+      String(data.MustChangePassword)
+        .toLowerCase() === 'true';
+
+    let valid = false;
+
+    if (salt && passwordHash) {
+      const calculatedHash =
+        hashPassword_(
+          suppliedPassword,
+          salt
+        );
+
+      valid = timingSafeEqual_(
+        calculatedHash,
+        passwordHash
+      );
+    } else {
+      valid = timingSafeEqual_(
+        suppliedPassword,
+        employeeCode
+      );
+    }
+
+    if (!valid) {
+      auditLog_(
+        'USER',
+        employeeCode,
+        'LOGIN',
+        normalizedCCCD,
+        false,
+        ipAddress,
+        'Invalid password'
+      );
+
+      return createResponse_(
+        false,
+        null,
+        'Thông tin đăng nhập không hợp lệ.',
+        'INVALID_CREDENTIALS'
+      );
+    }
+
+    const token = createUserToken_(
+      employeeCode,
+      mustChangePassword
+    );
+
+    auditLog_(
+      'USER',
+      employeeCode,
+      'LOGIN',
+      normalizedCCCD,
+      true,
+      ipAddress,
+      'Successful login'
+    );
+
+    return createResponse_(
+      true,
+      {
+        token: token,
+        employeeCode: employeeCode,
+        fullName: data.FullName,
+        mustChangePassword: mustChangePassword
+      },
+      'Đăng nhập thành công.',
+      'OK'
+    );
+  } catch (error) {
+    console.error(error);
+
+    return createResponse_(
+      false,
+      null,
+      'Không thể xử lý đăng nhập.',
+      'SERVER_ERROR'
+    );
+  }
+}
+
+
+function changeUserPassword_(
+  token,
+  currentPassword,
+  newPassword,
+  confirmPassword,
+  ipAddress
+) {
+  const payload = requireUserToken_(token);
+
+  const employeeCode =
+    normalizeEmployeeCode_(payload.sub);
+
+  const current =
+    validatePassword_(currentPassword);
+
+  const next =
+    validatePassword_(newPassword);
+
+  const confirm =
+    validatePassword_(confirmPassword);
+
+  if (next !== confirm) {
+    throw new Error('PASSWORD_CONFIRM_MISMATCH');
+  }
+
+  if (current === next) {
+    throw new Error('PASSWORD_MUST_BE_DIFFERENT');
+  }
+
+  const employee =
+    findEmployeeByCode_(employeeCode);
+
+  if (!employee) {
+    throw new Error('EMPLOYEE_NOT_FOUND');
+  }
+
+  const data = employee.data;
+
+  const currentHash =
+    hashPassword_(
+      current,
+      String(data.PasswordSalt || '')
+    );
+
+  if (!timingSafeEqual_(
+    currentHash,
+    String(data.PasswordHash || '')
+  )) {
+    auditLog_(
+      'USER',
+      employeeCode,
+      'CHANGE_PASSWORD',
+      employeeCode,
+      false,
+      ipAddress,
+      'Current password incorrect'
+    );
+
+    throw new Error('CURRENT_PASSWORD_INVALID');
+  }
+
+  const passwordRecord =
+    createPasswordRecord_(next);
+
+  const sheet =
+    getSheet_(CONFIG.SHEETS.DATA);
+
+  const headers =
+    employee.headers;
+
+  const hashColumn =
+    findColumnIndex_(headers, 'PasswordHash') + 1;
+
+  const saltColumn =
+    findColumnIndex_(headers, 'PasswordSalt') + 1;
+
+  const mustChangeColumn =
+    findColumnIndex_(headers, 'MustChangePassword') + 1;
+
+  const updatedAtColumn =
+    findColumnIndex_(headers, 'UpdatedAt') + 1;
+
+  const updatedByColumn =
+    findColumnIndex_(headers, 'UpdatedBy') + 1;
+
+  const lock = acquireScriptLock_(10000);
+
+  try {
+    sheet
+      .getRange(employee.rowNumber, hashColumn)
+      .setValue(passwordRecord.passwordHash);
+
+    sheet
+      .getRange(employee.rowNumber, saltColumn)
+      .setValue(passwordRecord.passwordSalt);
+
+    sheet
+      .getRange(employee.rowNumber, mustChangeColumn)
+      .setValue(false);
+
+    sheet
+      .getRange(employee.rowNumber, updatedAtColumn)
+      .setValue(formatDateTime_(new Date()));
+
+    sheet
+      .getRange(employee.rowNumber, updatedByColumn)
+      .setValue(employeeCode);
+
+    auditLog_(
+      'USER',
+      employeeCode,
+      'CHANGE_PASSWORD',
+      employeeCode,
+      true,
+      ipAddress,
+      'Password changed'
+    );
+  } finally {
+    lock.releaseLock();
+  }
+
+  const newToken =
+    createUserToken_(
+      employeeCode,
+      false
+    );
+
+  return createResponse_(
+    true,
+    {
+      token: newToken,
+      employeeCode: employeeCode,
+      mustChangePassword: false
+    },
+    'Đổi mật khẩu thành công.',
+    'OK'
+  );
+}
+
+
+function findAdminByUsername_(username) {
+  const normalized =
+    normalizeString_(username)
+      .toLowerCase();
+
+  const sheet =
+    getSheet_(CONFIG.SHEETS.ADMIN);
+
+  if (sheet.getLastRow() < 2) {
+    return null;
+  }
+
+  const headers =
+    getHeaders_(sheet);
+
+  const usernameIndex =
+    findColumnIndex_(headers, 'Username');
+
+  const values =
+    sheet
+      .getRange(
+        2,
+        1,
+        sheet.getLastRow() - 1,
+        headers.length
+      )
+      .getValues();
+
+  for (let index = 0; index < values.length; index++) {
+    const rowObject =
+      rowsToObjects_(
+        headers,
+        [values[index]]
+      )[0];
+
+    if (
+      normalizeString_(rowObject.Username)
+        .toLowerCase() === normalized &&
+      String(rowObject.Active).toLowerCase() === 'true'
+    ) {
+      return {
+        rowNumber: index + 2,
+        headers: headers,
+        data: rowObject
+      };
+    }
+  }
+
+  return null;
+}
+
+
+function loginAdmin_(
+  username,
+  password,
+  ipAddress
+) {
+  try {
+    const admin =
+      findAdminByUsername_(username);
+
+    if (!admin) {
+      auditLog_(
+        'ADMIN',
+        username,
+        'ADMIN_LOGIN',
+        username,
+        false,
+        ipAddress,
+        'Admin not found'
+      );
+
+      return createResponse_(
+        false,
+        null,
+        'Thông tin quản trị không hợp lệ.',
+        'INVALID_CREDENTIALS'
+      );
+    }
+
+    const data = admin.data;
+
+    const calculated =
+      hashPassword_(
+        String(password || ''),
+        String(data.PasswordSalt || '')
+      );
+
+    if (!timingSafeEqual_(
+      calculated,
+      String(data.PasswordHash || '')
+    )) {
+      auditLog_(
+        'ADMIN',
+        username,
+        'ADMIN_LOGIN',
+        username,
+        false,
+        ipAddress,
+        'Invalid admin password'
+      );
+
+      return createResponse_(
+        false,
+        null,
+        'Thông tin quản trị không hợp lệ.',
+        'INVALID_CREDENTIALS'
+      );
+    }
+
+    const token =
+      createAdminToken_(
+        data.AdminId,
+        data.Username
+      );
+
+    auditLog_(
+      'ADMIN',
+      data.AdminId,
+      'ADMIN_LOGIN',
+      data.Username,
+      true,
+      ipAddress,
+      'Successful admin login'
+    );
+
+    return createResponse_(
+      true,
+      {
+        token: token,
+        username: data.Username
+      },
+      'Đăng nhập quản trị thành công.',
+      'OK'
+    );
+  } catch (error) {
+    console.error(error);
+
+    return createResponse_(
+      false,
+      null,
+      'Không thể xử lý đăng nhập quản trị.',
+      'SERVER_ERROR'
+    );
+  }
 }
