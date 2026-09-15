@@ -1,265 +1,94 @@
-const CONFIG = Object.freeze({
-  SPREADSHEET_ID: '1Y-f3xSzwrV2ycBnzThlrtgcOcHD2Z4iqLKqqTyVFejM',
+/**
+ * Config.gs
+ * -----------------------------------------------------------------------
+ * Tất cả cấu hình tập trung tại đây. KHÔNG hard-code các giá trị nhạy cảm
+ * (API key, Spreadsheet ID...) trực tiếp trong code khi share cho người khác;
+ * nên lưu trong Script Properties (File > Project properties > Script properties)
+ * và đọc ra bằng PropertiesService như bên dưới.
+ * -----------------------------------------------------------------------
+ */
 
-  SHEETS: Object.freeze({
-    DATA: 'Data',
-    ADMIN: 'Admin',
-    AUDIT: 'AuditLog'
-  }),
+var CONFIG = {
+  // ID của Google Sheet dùng làm database (lấy trong URL của sheet)
+  SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || 'PUT_YOUR_SPREADSHEET_ID_HERE',
 
-  API: Object.freeze({
-    TOKEN_TTL_SECONDS: 30 * 60,
-    MAX_LOGIN_ATTEMPTS: 5,
-    LOGIN_LOCK_SECONDS: 15 * 60,
-    MAX_BODY_BYTES: 45 * 1024 * 1024
-  }),
+  // Khóa bí mật dùng để VBA xác thực khi đẩy dữ liệu lên (endpoint /sync)
+  // Đặt trong Script Properties: SYNC_API_KEY
+  SYNC_API_KEY: PropertiesService.getScriptProperties().getProperty('SYNC_API_KEY') || 'CHANGE_ME_SYNC_KEY',
 
-  PASSWORD: Object.freeze({
-    ITERATIONS: 12000,
-    SALT_BYTES: 16,
-    MIN_LENGTH: 8,
-    MAX_LENGTH: 128
-  }),
+  // Salt phụ (pepper) cộng thêm khi hash mật khẩu, tăng độ an toàn.
+  // Đặt trong Script Properties: PASSWORD_PEPPER
+  PASSWORD_PEPPER: PropertiesService.getScriptProperties().getProperty('PASSWORD_PEPPER') || 'CHANGE_ME_PEPPER',
 
-  SESSION: Object.freeze({
-    TOKEN_BYTES: 32
-  }),
+  // Tên các sheet trong Spreadsheet
+  SHEET_EMPLOYEES: 'Employees',
+  SHEET_PAYROLL: 'Payroll',
+  SHEET_AUDIT: 'AuditLog',
+  SHEET_SYNC_STATUS: 'SyncStatus',
 
-  SYNC: Object.freeze({
-    MAX_ROWS_PER_REQUEST: 10000
-  }),
+  // Thời hạn 1 session (giây) - 8 tiếng
+  SESSION_DURATION_SEC: 8 * 60 * 60,
 
-  PROPERTIES: Object.freeze({
-    SECRET_KEY: 'SALARY_API_SECRET_KEY',
-    SYNC_KEY: 'SALARY_SYNC_KEY'
-  }),
+  // Số vòng lặp băm mật khẩu (PBKDF2-like, tăng độ khó brute-force)
+  HASH_ITERATIONS: 10000,
 
-  DATA_HEADERS: Object.freeze([
-    'EmployeeCode',
-    'FullName',
-    'CCCD',
-    'Department',
-    'Section',
-    'Position',
+  // Danh sách domain được phép gọi API (CORS). '*' = cho phép tất cả.
+  // Nên đổi thành domain GitHub Pages thực tế của bạn, ví dụ:
+  // 'https://tenban.github.io'
+  ALLOWED_ORIGIN: '*'
+};
 
-    'BaseSalary',
-    'WorkingDays',
-    'HolidayDays',
-    'PaidLeaveDays',
-    'UnpaidLeaveDays',
-
-    'OvertimeHours',
-    'HolidayWorkHours',
-    'HolidayOvertimeHours',
-    'MinimumRegionalPaidLeaveDays',
-    'HolidayNightOvertimeHours',
-    'NightOvertimeHours',
-    'HolidayHours',
-    'HolidayOvertimeHours',
-    'HolidayNightOvertimeHours',
-    'NightShiftDays',
-
-    'OtherIncome',
-    'DisciplinaryDeduction',
-    'Loyalty2Years',
-    'Loyalty5Years',
-    'Loyalty10Years',
-    'HousingAllowance',
-    'TransportationAllowance',
-    'AttendanceBonus',
-    'TerminationAndUnusedLeaveAllowance',
-
-    'MonthlySalary',
-    'OvertimeHolidayNightSalary',
-    'CommissionAndExcessBonus',
-    'OtherIncomeTotal',
-
-    'OtherDeductions',
-    'AdvancePayment',
-    'SocialInsurance',
-    'HealthInsurance',
-    'UnemploymentInsurance',
-    'IncomeTax',
-
-    'NetSalary',
-
-    'PasswordHash',
-    'PasswordSalt',
-    'MustChangePassword',
-
-    'UpdatedAt',
-    'UpdatedBy'
-  ]),
-
-  ADMIN_HEADERS: Object.freeze([
-    'AdminId',
-    'Username',
-    'PasswordHash',
-    'PasswordSalt',
-    'Active',
-    'CreatedAt',
-    'UpdatedAt'
-  ]),
-
-  AUDIT_HEADERS: Object.freeze([
-    'Timestamp',
-    'ActorType',
-    'ActorId',
-    'Action',
-    'Target',
-    'Success',
-    'IPAddress',
-    'Details'
-  ])
-});
-
-
-function getSpreadsheet_() {
-  const id = String(CONFIG.SPREADSHEET_ID || '').trim();
-
-  if (!id || id === 'PUT_YOUR_GOOGLE_SHEET_ID_HERE') {
-    throw new Error('SPREADSHEET_ID chưa được cấu hình.');
-  }
-
-  return SpreadsheetApp.openById(id);
+/**
+ * Lấy đối tượng Spreadsheet dùng chung trong toàn bộ project.
+ */
+function getSS() {
+  return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
 }
 
-
-function getSheet_(sheetName) {
-  const spreadsheet = getSpreadsheet_();
-  const sheet = spreadsheet.getSheetByName(sheetName);
-
+/**
+ * Lấy 1 sheet theo tên, tạo mới với header nếu chưa tồn tại.
+ */
+function getOrCreateSheet(name, headers) {
+  var ss = getSS();
+  var sheet = ss.getSheetByName(name);
   if (!sheet) {
-    throw new Error('Không tìm thấy sheet: ' + sheetName);
+    sheet = ss.insertSheet(name);
+    if (headers && headers.length) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
+    }
   }
-
   return sheet;
 }
 
-
-function initializeConfiguration() {
-  const properties = PropertiesService.getScriptProperties();
-
-  let secretKey = properties.getProperty(CONFIG.PROPERTIES.SECRET_KEY);
-  let syncKey = properties.getProperty(CONFIG.PROPERTIES.SYNC_KEY);
-
-  if (!secretKey) {
-    secretKey = randomHex_(64);
-    properties.setProperty(CONFIG.PROPERTIES.SECRET_KEY, secretKey);
-  }
-
-  if (!syncKey) {
-    syncKey = randomHex_(64);
-    properties.setProperty(CONFIG.PROPERTIES.SYNC_KEY, syncKey);
-  }
-
-  initializeSheets_();
-
-  return {
-    success: true,
-    message: 'Configuration initialized.',
-    secretKeyCreated: true,
-    syncKeyCreated: true
-  };
-}
-
-
-function initializeSheets_() {
-  const spreadsheet = getSpreadsheet_();
-
-  let dataSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.DATA);
-  let adminSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.ADMIN);
-  let auditSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.AUDIT);
-
-  if (!dataSheet) {
-    dataSheet = spreadsheet.insertSheet(CONFIG.SHEETS.DATA);
-  }
-
-  if (!adminSheet) {
-    adminSheet = spreadsheet.insertSheet(CONFIG.SHEETS.ADMIN);
-  }
-
-  if (!auditSheet) {
-    auditSheet = spreadsheet.insertSheet(CONFIG.SHEETS.AUDIT);
-  }
-
-  ensureHeaderRow_(
-    dataSheet,
-    CONFIG.DATA_HEADERS
-  );
-
-  ensureHeaderRow_(
-    adminSheet,
-    CONFIG.ADMIN_HEADERS
-  );
-
-  ensureHeaderRow_(
-    auditSheet,
-    CONFIG.AUDIT_HEADERS
-  );
-
-  const cccdIndex = CONFIG.DATA_HEADERS.indexOf('CCCD') + 1;
-
-  if (cccdIndex > 0) {
-    dataSheet
-      .getRange(2, cccdIndex, Math.max(dataSheet.getMaxRows() - 1, 1), 1)
-      .setNumberFormat('@');
-  }
-
-  return true;
-}
-
-
-function ensureHeaderRow_(sheet, headers) {
-  const currentColumnCount = sheet.getMaxColumns();
-
-  if (currentColumnCount < headers.length) {
-    sheet.insertColumnsAfter(
-      currentColumnCount,
-      headers.length - currentColumnCount
-    );
-  }
-
-  sheet
-    .getRange(1, 1, 1, headers.length)
-    .setValues([headers]);
-
-  sheet
-    .getRange(1, 1, 1, headers.length)
-    .setFontWeight('bold');
-}
-
-
-function getSecretKey_() {
-  const value = PropertiesService
-    .getScriptProperties()
-    .getProperty(CONFIG.PROPERTIES.SECRET_KEY);
-
-  if (!value) {
-    throw new Error(
-      'Secret key chưa được thiết lập. Hãy chạy initializeConfiguration().'
-    );
-  }
-
-  return value;
-}
-
-
-function getSyncKey_() {
-  const value = PropertiesService
-    .getScriptProperties()
-    .getProperty(CONFIG.PROPERTIES.SYNC_KEY);
-
-  if (!value) {
-    throw new Error(
-      'Sync key chưa được thiết lập. Hãy chạy initializeConfiguration().'
-    );
-  }
-
-  return value;
-}
-
-
-function getApiOrigin_() {
-  return 'https://script.google.com';
+/**
+ * Khởi tạo cấu trúc sheet cần thiết (chạy 1 lần thủ công từ Apps Script Editor:
+ * chọn hàm setupSheets rồi bấm Run).
+ */
+function setupSheets() {
+  getOrCreateSheet(CONFIG.SHEET_EMPLOYEES, [
+    'CCCD', 'MaNV', 'HoTen', 'Xuong', 'PhongBan', 'BoPhan', 'ChucVu',
+    'PasswordHash', 'PasswordSalt', 'MustChangePassword', 'Role',
+    'UpdatedAt'
+  ]);
+  getOrCreateSheet(CONFIG.SHEET_PAYROLL, [
+    'MaNV', 'HoTen', 'Xuong', 'Thang',
+    'LuongCoBan', 'SoNgayLamViec', 'SoNgayLe', 'SoNgayNghiHuongLuong',
+    'SoNgayNghiKhongLuong', 'SoNgayNghiHuongLuongToiThieuVung', 'LuongThang',
+    'SoGioNgoaiGio', 'SoGioNgayNghi', 'SoGioNgoaiGioNgayNghi', 'SoGioTangCaDem',
+    'SoGioLamNgayLe', 'SoGioNgoaiGioNgayLe', 'SoGioTangCaDemNgayLe',
+    'SoNgayLamCaDem', 'LuongNgoaiGio',
+    'TienKhac', 'TienKyLuat', 'TienGanBo2Nam', 'TienGanBo5Nam', 'TienGanBo10Nam',
+    'TienNhaO', 'TienDiLai', 'TienThuongChuyenCan', 'HoaHongThuongVuotDinhMuc',
+    'TroCapThoiViecPhepNam', 'TongKhoanThuNhap',
+    'BHXH', 'BHYT', 'BHTN', 'ThueThuNhap', 'TamUng', 'KhauTruKhac',
+    'LuongThucLinh', 'UpdatedAt'
+  ]);
+  getOrCreateSheet(CONFIG.SHEET_AUDIT, [
+    'Timestamp', 'Actor', 'Action', 'Target', 'Detail'
+  ]);
+  getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS, [
+    'Xuong', 'Thang', 'LastSyncAt', 'SoDongDaXuLy', 'TrangThai', 'GhiChu'
+  ]);
+  Logger.log('Setup hoàn tất.');
 }

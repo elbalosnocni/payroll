@@ -1,548 +1,202 @@
-function findEmployeeByCCCD_(cccd) {
-  const normalizedCCCD = normalizeCCCD_(cccd);
+/**
+ * Auth.gs
+ * -----------------------------------------------------------------------
+ * Đăng nhập, đổi mật khẩu, quản lý session (token), phân quyền employee/admin.
+ *
+ * Lưu ý bảo mật:
+ * - Mật khẩu KHÔNG BAO GIỜ được lưu ở dạng plaintext.
+ * - Băm mật khẩu bằng SHA-256 lặp nhiều vòng (HASH_ITERATIONS) kèm salt riêng
+ *   cho từng user + pepper chung (PASSWORD_PEPPER) => tương đương PBKDF2 đơn giản.
+ * - Session token là chuỗi ngẫu nhiên, lưu trong CacheService (không lưu trong
+ *   Sheet để tránh lộ khi share quyền xem Sheet), có thời hạn SESSION_DURATION_SEC.
+ * -----------------------------------------------------------------------
+ */
 
-  if (!isValidCCCD_(normalizedCCCD)) {
+/**
+ * Sinh salt ngẫu nhiên (hex, 32 ký tự).
+ */
+function generateSalt() {
+  return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+}
+
+/**
+ * Băm mật khẩu: lặp SHA-256 nhiều vòng với salt + pepper.
+ */
+function hashPassword(password, salt) {
+  var input = String(password) + '|' + salt + '|' + CONFIG.PASSWORD_PEPPER;
+  var digestBytes = Utilities.newBlob(input).getBytes();
+  for (var i = 0; i < CONFIG.HASH_ITERATIONS; i++) {
+    digestBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, digestBytes);
+  }
+  return Utilities.base64Encode(digestBytes);
+}
+
+function verifyPassword(password, salt, expectedHash) {
+  var actualHash = hashPassword(password, salt);
+  return safeCompare(actualHash, expectedHash);
+}
+
+/**
+ * Sinh token session ngẫu nhiên.
+ */
+function generateToken() {
+  return Utilities.getUuid() + Utilities.getUuid();
+}
+
+/**
+ * Tạo session mới cho 1 user (employee hoặc admin), lưu vào CacheService.
+ * Trả về token.
+ */
+function createSession(cccd, role) {
+  var token = generateToken();
+  var cache = CacheService.getScriptCache();
+  var payload = JSON.stringify({ cccd: cccd, role: role, createdAt: new Date().getTime() });
+  cache.put('session_' + token, payload, CONFIG.SESSION_DURATION_SEC);
+  return token;
+}
+
+/**
+ * Lấy thông tin session từ token. Trả về null nếu không hợp lệ / hết hạn.
+ */
+function getSession(token) {
+  if (!token) return null;
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get('session_' + token);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
     return null;
   }
+}
 
-  const sheet = getSheet_(CONFIG.SHEETS.DATA);
-  const headers = getHeaders_(sheet);
+function destroySession(token) {
+  var cache = CacheService.getScriptCache();
+  cache.remove('session_' + token);
+}
 
-  if (!headers.length || sheet.getLastRow() < 2) {
-    return null;
-  }
-
-  const cccdIndex = findColumnIndex_(headers, 'CCCD');
-
-  const values = sheet
-    .getRange(
-      2,
-      cccdIndex + 1,
-      sheet.getLastRow() - 1,
-      1
-    )
-    .getDisplayValues();
-
-  for (let index = 0; index < values.length; index++) {
-    const sheetCCCD = normalizeCCCD_(
-      values[index][0]
-    );
-
-    if (timingSafeEqual_(
-      sheetCCCD,
-      normalizedCCCD
-    )) {
-      const rowNumber = index + 2;
-
-      const row = sheet
-        .getRange(
-          rowNumber,
-          1,
-          1,
-          headers.length
-        )
-        .getValues()[0];
-
-      return {
-        rowNumber: rowNumber,
-        headers: headers,
-        data: rowsToObjects_(
-          headers,
-          [row]
-        )[0]
-      };
+/**
+ * Tìm dòng nhân viên theo CCCD trong sheet Employees.
+ */
+function findEmployeeByCCCD(cccd) {
+  var normalized = normalizeCCCD(cccd);
+  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
+  var rows = sheetToObjects(sheet);
+  for (var i = 0; i < rows.length; i++) {
+    if (normalizeCCCD(rows[i].CCCD) === normalized) {
+      return rows[i];
     }
   }
-
   return null;
 }
 
+/**
+ * POST /login
+ * body: { cccd, password }
+ */
+function actionLogin(params) {
+  var cccd = normalizeCCCD(params.cccd);
+  var password = String(params.password || '');
 
-function findEmployeeByCode_(employeeCode) {
-  const normalizedCode =
-    normalizeEmployeeCode_(employeeCode);
-
-  if (!normalizedCode) {
-    return null;
+  if (!cccd || !password) {
+    return errorResponse('Vui lòng nhập đầy đủ Số căn cước và mật khẩu.', 'MISSING_FIELDS');
   }
 
-  const sheet = getSheet_(CONFIG.SHEETS.DATA);
-  const headers = getHeaders_(sheet);
-
-  if (!headers.length || sheet.getLastRow() < 2) {
-    return null;
+  var emp = findEmployeeByCCCD(cccd);
+  if (!emp) {
+    writeAudit(cccd, 'LOGIN_FAILED', cccd, 'Không tìm thấy CCCD');
+    return errorResponse('Số căn cước hoặc mật khẩu không đúng.', 'INVALID_CREDENTIALS');
   }
 
-  const codeIndex =
-    findColumnIndex_(headers, 'EmployeeCode');
-
-  const values = sheet
-    .getRange(
-      2,
-      codeIndex + 1,
-      sheet.getLastRow() - 1,
-      1
-    )
-    .getDisplayValues();
-
-  for (let index = 0; index < values.length; index++) {
-    if (
-      normalizeEmployeeCode_(values[index][0]) ===
-      normalizedCode
-    ) {
-      const rowNumber = index + 2;
-
-      const row = sheet
-        .getRange(
-          rowNumber,
-          1,
-          1,
-          headers.length
-        )
-        .getValues()[0];
-
-      return {
-        rowNumber: rowNumber,
-        headers: headers,
-        data: rowsToObjects_(
-          headers,
-          [row]
-        )[0]
-      };
-    }
+  if (!emp.PasswordHash || !emp.PasswordSalt) {
+    writeAudit(cccd, 'LOGIN_FAILED', cccd, 'Tài khoản chưa có mật khẩu, cần admin reset');
+    return errorResponse('Tài khoản chưa được khởi tạo mật khẩu. Vui lòng liên hệ Admin.', 'NO_PASSWORD');
   }
 
-  return null;
+  var valid = verifyPassword(password, emp.PasswordSalt, emp.PasswordHash);
+  if (!valid) {
+    writeAudit(cccd, 'LOGIN_FAILED', cccd, 'Sai mật khẩu');
+    return errorResponse('Số căn cước hoặc mật khẩu không đúng.', 'INVALID_CREDENTIALS');
+  }
+
+  var role = emp.Role === 'admin' ? 'admin' : 'employee';
+  var token = createSession(cccd, role);
+  writeAudit(cccd, 'LOGIN_SUCCESS', cccd, 'role=' + role);
+
+  return successResponse({
+    token: token,
+    role: role,
+    hoTen: emp.HoTen,
+    mustChangePassword: emp.MustChangePassword === true || emp.MustChangePassword === 'TRUE' || emp.MustChangePassword === 'true'
+  });
 }
 
-
-function loginUser_(cccd, password, ipAddress) {
-  try {
-    const normalizedCCCD = normalizeCCCD_(cccd);
-    const suppliedPassword = String(password || '');
-
-    if (!isValidCCCD_(normalizedCCCD)) {
-      return createResponse_(
-        false,
-        null,
-        'Thông tin đăng nhập không hợp lệ.',
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    if (
-      suppliedPassword.length < 1 ||
-      suppliedPassword.length > CONFIG.PASSWORD.MAX_LENGTH
-    ) {
-      return createResponse_(
-        false,
-        null,
-        'Thông tin đăng nhập không hợp lệ.',
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    const employee = findEmployeeByCCCD_(
-      normalizedCCCD
-    );
-
-    if (!employee) {
-      auditLog_(
-        'USER',
-        normalizedCCCD,
-        'LOGIN',
-        normalizedCCCD,
-        false,
-        ipAddress,
-        'Employee not found'
-      );
-
-      return createResponse_(
-        false,
-        null,
-        'Thông tin đăng nhập không hợp lệ.',
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    const data = employee.data;
-
-    const employeeCode =
-      normalizeEmployeeCode_(data.EmployeeCode);
-
-    const salt = normalizeString_(
-      data.PasswordSalt
-    );
-
-    const passwordHash = normalizeString_(
-      data.PasswordHash
-    );
-
-    const mustChangePassword =
-      String(data.MustChangePassword)
-        .toLowerCase() === 'true';
-
-    let valid = false;
-
-    if (salt && passwordHash) {
-      const calculatedHash =
-        hashPassword_(
-          suppliedPassword,
-          salt
-        );
-
-      valid = timingSafeEqual_(
-        calculatedHash,
-        passwordHash
-      );
-    } else {
-      valid = timingSafeEqual_(
-        suppliedPassword,
-        employeeCode
-      );
-    }
-
-    if (!valid) {
-      auditLog_(
-        'USER',
-        employeeCode,
-        'LOGIN',
-        normalizedCCCD,
-        false,
-        ipAddress,
-        'Invalid password'
-      );
-
-      return createResponse_(
-        false,
-        null,
-        'Thông tin đăng nhập không hợp lệ.',
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    const token = createUserToken_(
-      employeeCode,
-      mustChangePassword
-    );
-
-    auditLog_(
-      'USER',
-      employeeCode,
-      'LOGIN',
-      normalizedCCCD,
-      true,
-      ipAddress,
-      'Successful login'
-    );
-
-    return createResponse_(
-      true,
-      {
-        token: token,
-        employeeCode: employeeCode,
-        fullName: data.FullName,
-        mustChangePassword: mustChangePassword
-      },
-      'Đăng nhập thành công.',
-      'OK'
-    );
-  } catch (error) {
-    console.error(error);
-
-    return createResponse_(
-      false,
-      null,
-      'Không thể xử lý đăng nhập.',
-      'SERVER_ERROR'
-    );
+/**
+ * POST /changePassword
+ * body: { token, oldPassword, newPassword, confirmPassword }
+ */
+function actionChangePassword(params) {
+  var session = getSession(params.token);
+  if (!session) {
+    return errorResponse('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 'SESSION_EXPIRED');
   }
+
+  var oldPassword = String(params.oldPassword || '');
+  var newPassword = String(params.newPassword || '');
+  var confirmPassword = String(params.confirmPassword || '');
+
+  if (!oldPassword || !newPassword || !confirmPassword) {
+    return errorResponse('Vui lòng nhập đầy đủ thông tin.', 'MISSING_FIELDS');
+  }
+  if (newPassword !== confirmPassword) {
+    return errorResponse('Mật khẩu mới và xác nhận mật khẩu không khớp.', 'PASSWORD_MISMATCH');
+  }
+  if (newPassword.length < 6) {
+    return errorResponse('Mật khẩu mới phải có ít nhất 6 ký tự.', 'PASSWORD_TOO_SHORT');
+  }
+  if (newPassword === oldPassword) {
+    return errorResponse('Mật khẩu mới phải khác mật khẩu hiện tại.', 'PASSWORD_SAME');
+  }
+
+  var emp = findEmployeeByCCCD(session.cccd);
+  if (!emp) {
+    return errorResponse('Không tìm thấy tài khoản.', 'NOT_FOUND');
+  }
+
+  var validOld = verifyPassword(oldPassword, emp.PasswordSalt, emp.PasswordHash);
+  if (!validOld) {
+    writeAudit(session.cccd, 'CHANGE_PASSWORD_FAILED', session.cccd, 'Sai mật khẩu hiện tại');
+    return errorResponse('Mật khẩu hiện tại không đúng.', 'INVALID_OLD_PASSWORD');
+  }
+
+  var newSalt = generateSalt();
+  var newHash = hashPassword(newPassword, newSalt);
+
+  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var colHash = headers.indexOf('PasswordHash') + 1;
+  var colSalt = headers.indexOf('PasswordSalt') + 1;
+  var colMustChange = headers.indexOf('MustChangePassword') + 1;
+
+  sheet.getRange(emp.__row, colHash).setValue(newHash);
+  sheet.getRange(emp.__row, colSalt).setValue(newSalt);
+  sheet.getRange(emp.__row, colMustChange).setValue(false);
+
+  writeAudit(session.cccd, 'CHANGE_PASSWORD_SUCCESS', session.cccd, '');
+
+  return successResponse({ message: 'Đổi mật khẩu thành công.' });
 }
 
-
-function changeUserPassword_(
-  token,
-  currentPassword,
-  newPassword,
-  confirmPassword,
-  ipAddress
-) {
-  const payload = requireUserToken_(token);
-
-  const employeeCode =
-    normalizeEmployeeCode_(payload.sub);
-
-  const current =
-    validatePassword_(currentPassword);
-
-  const next =
-    validatePassword_(newPassword);
-
-  const confirm =
-    validatePassword_(confirmPassword);
-
-  if (next !== confirm) {
-    throw new Error('PASSWORD_CONFIRM_MISMATCH');
-  }
-
-  if (current === next) {
-    throw new Error('PASSWORD_MUST_BE_DIFFERENT');
-  }
-
-  const employee =
-    findEmployeeByCode_(employeeCode);
-
-  if (!employee) {
-    throw new Error('EMPLOYEE_NOT_FOUND');
-  }
-
-  const data = employee.data;
-
-  const currentHash =
-    hashPassword_(
-      current,
-      String(data.PasswordSalt || '')
-    );
-
-  if (!timingSafeEqual_(
-    currentHash,
-    String(data.PasswordHash || '')
-  )) {
-    auditLog_(
-      'USER',
-      employeeCode,
-      'CHANGE_PASSWORD',
-      employeeCode,
-      false,
-      ipAddress,
-      'Current password incorrect'
-    );
-
-    throw new Error('CURRENT_PASSWORD_INVALID');
-  }
-
-  const passwordRecord =
-    createPasswordRecord_(next);
-
-  const sheet =
-    getSheet_(CONFIG.SHEETS.DATA);
-
-  const headers =
-    employee.headers;
-
-  const hashColumn =
-    findColumnIndex_(headers, 'PasswordHash') + 1;
-
-  const saltColumn =
-    findColumnIndex_(headers, 'PasswordSalt') + 1;
-
-  const mustChangeColumn =
-    findColumnIndex_(headers, 'MustChangePassword') + 1;
-
-  const updatedAtColumn =
-    findColumnIndex_(headers, 'UpdatedAt') + 1;
-
-  const updatedByColumn =
-    findColumnIndex_(headers, 'UpdatedBy') + 1;
-
-  const lock = acquireScriptLock_(10000);
-
-  try {
-    sheet
-      .getRange(employee.rowNumber, hashColumn)
-      .setValue(passwordRecord.passwordHash);
-
-    sheet
-      .getRange(employee.rowNumber, saltColumn)
-      .setValue(passwordRecord.passwordSalt);
-
-    sheet
-      .getRange(employee.rowNumber, mustChangeColumn)
-      .setValue(false);
-
-    sheet
-      .getRange(employee.rowNumber, updatedAtColumn)
-      .setValue(formatDateTime_(new Date()));
-
-    sheet
-      .getRange(employee.rowNumber, updatedByColumn)
-      .setValue(employeeCode);
-
-    auditLog_(
-      'USER',
-      employeeCode,
-      'CHANGE_PASSWORD',
-      employeeCode,
-      true,
-      ipAddress,
-      'Password changed'
-    );
-  } finally {
-    lock.releaseLock();
-  }
-
-  const newToken =
-    createUserToken_(
-      employeeCode,
-      false
-    );
-
-  return createResponse_(
-    true,
-    {
-      token: newToken,
-      employeeCode: employeeCode,
-      mustChangePassword: false
-    },
-    'Đổi mật khẩu thành công.',
-    'OK'
-  );
+/**
+ * Kiểm tra session hợp lệ và bắt buộc phải là admin. Trả về session object
+ * nếu hợp lệ, hoặc null nếu không.
+ */
+function requireAdmin(token) {
+  var session = getSession(token);
+  if (!session || session.role !== 'admin') return null;
+  return session;
 }
 
-
-function findAdminByUsername_(username) {
-  const normalized =
-    normalizeString_(username)
-      .toLowerCase();
-
-  const sheet =
-    getSheet_(CONFIG.SHEETS.ADMIN);
-
-  if (sheet.getLastRow() < 2) {
-    return null;
-  }
-
-  const headers =
-    getHeaders_(sheet);
-
-  const usernameIndex =
-    findColumnIndex_(headers, 'Username');
-
-  const values =
-    sheet
-      .getRange(
-        2,
-        1,
-        sheet.getLastRow() - 1,
-        headers.length
-      )
-      .getValues();
-
-  for (let index = 0; index < values.length; index++) {
-    const rowObject =
-      rowsToObjects_(
-        headers,
-        [values[index]]
-      )[0];
-
-    if (
-      normalizeString_(rowObject.Username)
-        .toLowerCase() === normalized &&
-      String(rowObject.Active).toLowerCase() === 'true'
-    ) {
-      return {
-        rowNumber: index + 2,
-        headers: headers,
-        data: rowObject
-      };
-    }
-  }
-
-  return null;
-}
-
-
-function loginAdmin_(
-  username,
-  password,
-  ipAddress
-) {
-  try {
-    const admin =
-      findAdminByUsername_(username);
-
-    if (!admin) {
-      auditLog_(
-        'ADMIN',
-        username,
-        'ADMIN_LOGIN',
-        username,
-        false,
-        ipAddress,
-        'Admin not found'
-      );
-
-      return createResponse_(
-        false,
-        null,
-        'Thông tin quản trị không hợp lệ.',
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    const data = admin.data;
-
-    const calculated =
-      hashPassword_(
-        String(password || ''),
-        String(data.PasswordSalt || '')
-      );
-
-    if (!timingSafeEqual_(
-      calculated,
-      String(data.PasswordHash || '')
-    )) {
-      auditLog_(
-        'ADMIN',
-        username,
-        'ADMIN_LOGIN',
-        username,
-        false,
-        ipAddress,
-        'Invalid admin password'
-      );
-
-      return createResponse_(
-        false,
-        null,
-        'Thông tin quản trị không hợp lệ.',
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    const token =
-      createAdminToken_(
-        data.AdminId,
-        data.Username
-      );
-
-    auditLog_(
-      'ADMIN',
-      data.AdminId,
-      'ADMIN_LOGIN',
-      data.Username,
-      true,
-      ipAddress,
-      'Successful admin login'
-    );
-
-    return createResponse_(
-      true,
-      {
-        token: token,
-        username: data.Username
-      },
-      'Đăng nhập quản trị thành công.',
-      'OK'
-    );
-  } catch (error) {
-    console.error(error);
-
-    return createResponse_(
-      false,
-      null,
-      'Không thể xử lý đăng nhập quản trị.',
-      'SERVER_ERROR'
-    );
-  }
+function requireAuth(token) {
+  return getSession(token);
 }
