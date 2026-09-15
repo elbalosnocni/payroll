@@ -93,7 +93,6 @@ Private Sub SyncOneWorkshop(ByVal rootPath As String, ByVal filePrefix As String
 
     Dim jsonBody As String
     jsonBody = "{" & _
-        Json.JsonString("action") & ":" & Json.JsonString("sync") & "," & _
         Json.JsonString("apiKey") & ":" & Json.JsonString(SYNC_API_KEY) & "," & _
         Json.JsonString("xuong") & ":" & Json.JsonString(label) & "," & _
         Json.JsonString("thang") & ":" & Json.JsonString(thangStr) & "," & _
@@ -102,7 +101,7 @@ Private Sub SyncOneWorkshop(ByVal rootPath As String, ByVal filePrefix As String
         "}"
 
     Dim responseText As String
-    responseText = PostJsonUtf8(GAS_URL, jsonBody)
+    responseText = PostJsonUtf8WithRetry(GAS_URL, jsonBody, label)
     LogMessage "[" & label & "] Phan hoi tu server: " & responseText
 
     Exit Sub
@@ -154,64 +153,40 @@ End Function
 ' payroll (String JSON, 1 dong / nhan vien).
 Private Sub ReadSalarySheet(ByVal ws As Worksheet, ByVal dscnvLookup As Object, _
                              ByRef employees As Collection, ByRef payroll As Collection)
-    ' Chi doc bang luong den truoc dong TOTAL dau tien trong cot B.
-    ' Cac dong group/tong/nhap phia sau TOTAL se khong duoc doc.
-    Dim totalRow As Long
-    totalRow = FindSalaryTotalRow(ws)
+    Dim rawLastRow As Long
+    rawLastRow = ws.Cells(ws.Rows.Count, ColLetterToNumber(COL_SALARY_MANV)).End(xlUp).Row
 
-    If totalRow = 0 Then
-        Err.Raise vbObjectError + 2001, , _
-            "Khong tim thay dong TOTAL trong cot B cua sheet Salary."
-    End If
-
-    Dim lastDataRow As Long
-    lastDataRow = totalRow - 1
-
-    If lastDataRow < DATA_START_ROW Then Exit Sub
-
-    LogMessage "  [Salary] Dong TOTAL tai dong " & totalRow & "; chi doc tu dong " & _
-               DATA_START_ROW & " den " & lastDataRow & "."
+    Dim lastRow As Long
+    lastRow = ExcludeTotalRow(ws, DATA_START_ROW, rawLastRow)
 
     Dim seenManv As Object
     Set seenManv = CreateObject("Scripting.Dictionary")
-    seenManv.CompareMode = vbTextCompare
 
     Dim r As Long
-    For r = DATA_START_ROW To lastDataRow
+    For r = DATA_START_ROW To lastRow
         Dim maNV As String
         maNV = SafeText(GetCellText(ws, r, COL_SALARY_MANV))
-
-        ' Bo qua dong khong co MaNV (header/group/blank).
         If maNV = "" Then GoTo ContinueLoop
 
         Dim hoTen As String
         hoTen = SafeText(GetCellText(ws, r, COL_SALARY_HOTEN))
 
-        ' Bo qua cac dong group khong co HoTen.
-        If hoTen = "" Then GoTo ContinueLoop
-
         Dim info As Object
         Dim cccd As String, phongBan As String, boPhan As String, chucVu As String
         cccd = "": phongBan = "": boPhan = "": chucVu = ""
-
-        Dim normalizedName As String
-        normalizedName = NormalizeName(hoTen)
-
-        If dscnvLookup.Exists(normalizedName) Then
-            Set info = dscnvLookup(normalizedName)
+        If dscnvLookup.Exists(NormalizeName(hoTen)) Then
+            Set info = dscnvLookup(NormalizeName(hoTen))
             cccd = info("cccd")
             phongBan = info("phongBan")
             boPhan = info("boPhan")
             chucVu = info("chucVu")
         Else
-            LogMessage "  [Canh bao] Khong khop DSCNV cho nhan vien: " & hoTen & _
-                       " (Ma NV " & maNV & ")"
+            LogMessage "  [Canh bao] Khong khop DSCNV cho nhan vien: " & hoTen & " (Ma NV " & maNV & ")"
         End If
 
-        ' ---- employees: chi them 1 lan cho moi MaNV ----
+        ' ---- employees (chi them 1 lan cho moi Ma NV) ----
         If Not seenManv.Exists(maNV) Then
             seenManv.Add maNV, True
-
             Dim empJson As String
             empJson = "{" & _
                 Json.JsonString("maNV") & ":" & Json.JsonString(maNV) & "," & _
@@ -281,23 +256,59 @@ ContinueLoop:
     Next r
 End Sub
 
-' Tim dong TOTAL dau tien trong cot B.
-' Chap nhan TOTAL, Total1, TOTAL2... va cac chuoi co them khoang trang.
-Private Function FindSalaryTotalRow(ByVal ws As Worksheet) As Long
-    Dim lastBRow As Long
-    lastBRow = ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+' ===================== Xac dinh & loai dong TOTAL =====================
+
+' Do tu startRow den rawLastRow (co du phong them vai dong phia duoi de bat
+' truong hop dong TOTAL co gia tri o cot Ma NV khien End(xlUp) tinh du vao no),
+' tim dong dau tien co chu "TOTAL" trong cot COL_SALARY_TOTAL_MARKER (cot C).
+' Neu tim thay, chi doc du lieu den ngay TRUOC dong do. Neu khong tim thay
+' (vd file khong co dong TOTAL), giu nguyen rawLastRow nhu truoc.
+Private Function ExcludeTotalRow(ByVal ws As Worksheet, ByVal startRow As Long, _
+                                  ByVal rawLastRow As Long) As Long
+    Dim scanTo As Long
+    scanTo = rawLastRow + 5 ' du phong vai dong phia sau phong khi TOTAL nam ngoai rawLastRow
 
     Dim r As Long
-    Dim v As String
-    For r = DATA_START_ROW To lastBRow
-        v = UCase$(Trim$(SafeText(GetCellText(ws, r, "B"))))
-        If v = "TOTAL" Or Left$(v, 5) = "TOTAL" Then
-            FindSalaryTotalRow = r
+    For r = startRow To scanTo
+        Dim colCText As String
+        colCText = UCase(Trim(SafeText(GetCellText(ws, r, COL_SALARY_TOTAL_MARKER))))
+
+        If InStr(1, colCText, TOTAL_ROW_KEYWORD, vbTextCompare) > 0 Then
+            LogMessage "  [Salary] Dong TOTAL tai dong " & r & "; chi doc tu dong " & _
+                       startRow & " den " & (r - 1) & "."
+
+            If Not IsYellowFill(ws.Cells(r, ColLetterToNumber(COL_SALARY_TOTAL_MARKER))) Then
+                LogMessage "  [Canh bao][Salary] Dong TOTAL (dong " & r & _
+                           ") khong co mau vang nhu ky vong - van loai bo dong nay theo chu TOTAL."
+            End If
+
+            ExcludeTotalRow = r - 1
             Exit Function
+        End If
+
+        ' Neu qua rawLastRow ma van gap dong trong lien tiep (khong phai TOTAL)
+        ' thi dung do som de tranh quet vo tan.
+        If r > rawLastRow Then
+            Dim manvText As String
+            manvText = SafeText(GetCellText(ws, r, COL_SALARY_MANV))
+            If manvText = "" And colCText = "" Then Exit For
         End If
     Next r
 
-    FindSalaryTotalRow = 0
+    ' Khong tim thay dong TOTAL -> giu nguyen ranh gioi cu (khong loai gi them).
+    ExcludeTotalRow = rawLastRow
+End Function
+
+' Dong TOTAL thuong duoc to mau vang trong file nguon. Chi dung de CANH BAO khi
+' khong khop (vd sheet doi mau format), khong dung de quyet dinh loai dong.
+Private Function IsYellowFill(ByVal c As Range) As Boolean
+    On Error Resume Next
+    Dim clr As Long
+    clr = c.Interior.Color
+    IsYellowFill = (clr = RGB(255, 255, 0)) Or _   ' vang chuan
+                   (clr = RGB(255, 255, 153)) Or _  ' vang nhat
+                   (clr = RGB(255, 192, 0))          ' vang/cam dam (accent)
+    On Error GoTo 0
 End Function
 
 ' ===================== Helpers doc o (cell) =====================
@@ -337,28 +348,40 @@ End Function
 
 ' ===================== Goi HTTP (POST JSON, UTF-8) =====================
 
-Private Function PostJsonUtf8(ByVal url As String, ByVal jsonBody As String) As String
+' Goi PostJsonUtf8 toi da HTTP_MAX_ATTEMPTS lan. Thu lai khi: loi ket noi/
+' timeout ("LOI GUI HTTP:"), hoac server tra ve SYNC_BUSY (dang co phien dong
+' bo khac - hiem khi xay ra vi GAS da ghi theo lo rat nhanh, nhung 2 xuong co
+' the goi len gan nhu cung luc), hoac loi he thong tam thoi (SYNC_ERROR /
+' INTERNAL_ERROR). Cac loi khac (vd sai API key - FORBIDDEN) KHONG thu lai vi
+' thu lai cung se that bai.
+Private Function PostJsonUtf8WithRetry(ByVal url As String, ByVal jsonBody As String, _
+                                        ByVal label As String) As String
     Dim attempt As Long
-    Dim result As String
+    Dim responseText As String
 
-    For attempt = 1 To 2
-        result = PostJsonUtf8Once(url, jsonBody)
+    For attempt = 1 To HTTP_MAX_ATTEMPTS
+        responseText = PostJsonUtf8(url, jsonBody)
 
-        If Left$(result, 5) <> "LOI GU" Then
-            PostJsonUtf8 = result
+        If Left(responseText, Len("LOI GUI HTTP:")) <> "LOI GUI HTTP:" And _
+           InStr(1, responseText, """code"":""SYNC_BUSY""", vbTextCompare) = 0 And _
+           InStr(1, responseText, """code"":""SYNC_ERROR""", vbTextCompare) = 0 And _
+           InStr(1, responseText, """code"":""INTERNAL_ERROR""", vbTextCompare) = 0 Then
+            PostJsonUtf8WithRetry = responseText
             Exit Function
         End If
 
-        If attempt < 2 Then
-            LogMessage "  [HTTP] Lan " & attempt & " that bai: " & result & ". Thu lai..."
-            Application.Wait Now + TimeSerial(0, 0, 3)
+        If attempt < HTTP_MAX_ATTEMPTS Then
+            LogMessage "[" & label & "] Lan thu " & attempt & "/" & HTTP_MAX_ATTEMPTS & _
+                       " that bai (" & responseText & "). Cho " & HTTP_RETRY_WAIT_SEC & _
+                       "s roi thu lai..."
+            SleepSeconds HTTP_RETRY_WAIT_SEC
         End If
     Next attempt
 
-    PostJsonUtf8 = result
+    PostJsonUtf8WithRetry = responseText & " (da thu lai " & HTTP_MAX_ATTEMPTS & " lan)"
 End Function
 
-Private Function PostJsonUtf8Once(ByVal url As String, ByVal jsonBody As String) As String
+Private Function PostJsonUtf8(ByVal url As String, ByVal jsonBody As String) As String
     Dim http As Object
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
 
@@ -366,24 +389,26 @@ Private Function PostJsonUtf8Once(ByVal url As String, ByVal jsonBody As String)
     bodyBytes = Utf8BytesFromString(jsonBody)
 
     On Error GoTo HttpFailed
-
     http.Open "POST", url, False
-    http.SetTimeouts 10000, 10000, 30000, 120000
+    http.SetTimeouts HTTP_TIMEOUT_RESOLVE_MS, HTTP_TIMEOUT_CONNECT_MS, _
+                      HTTP_TIMEOUT_SEND_MS, HTTP_TIMEOUT_RECEIVE_MS
     http.SetRequestHeader "Content-Type", "text/plain;charset=utf-8"
-    http.SetRequestHeader "Accept", "application/json"
     http.Send bodyBytes
-
-    If http.Status >= 200 And http.Status < 300 Then
-        PostJsonUtf8Once = http.ResponseText
-    Else
-        PostJsonUtf8Once = "LOI HTTP STATUS " & CStr(http.Status) & ": " & http.ResponseText
-    End If
+    PostJsonUtf8 = http.responseText
     Exit Function
 
 HttpFailed:
-    PostJsonUtf8Once = "LOI GUI HTTP: " & Err.Description
+    PostJsonUtf8 = "LOI GUI HTTP: " & Err.Description
     On Error GoTo 0
 End Function
+
+' Application.Wait can gia tri Date tuyet doi nen phai cong don tu Now(); voi
+' so giay lon (>~24h) se tran, nhung o day chi dung vai chuc giay nen an toan.
+Private Sub SleepSeconds(ByVal seconds As Long)
+    Dim wakeAt As Date
+    wakeAt = Now + TimeSerial(0, 0, seconds)
+    Application.Wait wakeAt
+End Sub
 
 ' Chuyen 1 chuoi VBA (UTF-16) thanh mang byte UTF-8 (bo BOM), dung ADODB.Stream.
 Private Function Utf8BytesFromString(ByVal s As String) As Byte()
