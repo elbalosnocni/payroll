@@ -1,63 +1,69 @@
-/** Entry points for the Google Apps Script Web App. */
+/**
+ * Code.gs
+ * -----------------------------------------------------------------------
+ * Điểm vào chính của Apps Script Web App. Nhận request POST (JSON body hoặc
+ * form-urlencoded) chứa "action" để quyết định gọi hàm nào.
+ *
+ * Cách deploy: xem docs/GAS_DEPLOY.md
+ * -----------------------------------------------------------------------
+ */
+
 function doGet(e) {
-  try {
-    return jsonOutput({ ok: true, service: 'payroll-api', message: 'Payroll API đang hoạt động.', time: formatDateVN(new Date()) });
-  } catch (err) {
-    return jsonOutput({ ok: false, error: err.message || String(err), code: 'CONFIG_ERROR' });
-  }
+  return successResponse({
+    message: 'Payroll API đang hoạt động.',
+    time: formatDateVN(new Date())
+  });
 }
 
 function doPost(e) {
   var params = parseRequestParams(e);
-  var action = String(params.action || '').trim();
+  var action = params.action;
+
   try {
     switch (action) {
-      case 'ping': return successResponse({ pong: true, time: formatDateVN(new Date()) });
-      case 'health': return actionHealth();
-      case 'setup': return actionSetup(params);
-      case 'login': return actionLogin(params);
-      case 'changePassword': return actionChangePassword(params);
-      case 'getPayroll': return actionGetPayroll(params);
-      case 'adminListEmployees': return actionAdminListEmployees(params);
-      case 'adminSearchEmployee': return actionAdminSearchEmployee(params);
-      case 'adminResetPassword': return actionAdminResetPassword(params);
-      case 'adminSyncStatus': return actionAdminSyncStatus(params);
-      case 'adminAuditLog': return actionAdminAuditLog(params);
-      case 'sync': return actionSync(params);
-      default: return errorResponse('Action không hợp lệ: ' + action, 'UNKNOWN_ACTION');
+      case 'login':
+        return actionLogin(params);
+      case 'changePassword':
+        return actionChangePassword(params);
+      case 'getPayroll':
+        return actionGetPayroll(params);
+      case 'adminListEmployees':
+        return actionAdminListEmployees(params);
+      case 'adminSearchEmployee':
+        return actionAdminSearchEmployee(params);
+      case 'adminResetPassword':
+        return actionAdminResetPassword(params);
+      case 'adminSyncStatus':
+        return actionAdminSyncStatus(params);
+      case 'adminAuditLog':
+        return actionAdminAuditLog(params);
+      case 'sync':
+        return actionSync(params);
+      case 'ping':
+        return successResponse({ pong: true });
+      default:
+        return errorResponse('Action không hợp lệ: ' + action, 'UNKNOWN_ACTION');
     }
   } catch (err) {
-    Logger.log('Error action=%s: %s\n%s', action, err, err.stack || '');
-    return errorResponse('Lỗi máy chủ: ' + (err.message || String(err)), 'INTERNAL_ERROR');
+    // Không lộ chi tiết lỗi hệ thống ra ngoài, chỉ log lại để debug qua
+    // Apps Script > Executions.
+    Logger.log('Error in action ' + action + ': ' + err + '\n' + err.stack);
+    return errorResponse('Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.', 'INTERNAL_ERROR');
   }
 }
 
+/**
+ * Đọc tham số từ request: ưu tiên JSON body (e.postData.contents), fallback
+ * sang e.parameter (form-urlencoded) nếu cần.
+ */
 function parseRequestParams(e) {
   if (e && e.postData && e.postData.contents) {
     try {
       var body = JSON.parse(e.postData.contents);
       if (body && typeof body === 'object') return body;
-    } catch (_) {}
+    } catch (err) {
+      // không phải JSON, rơi xuống dùng e.parameter
+    }
   }
   return (e && e.parameter) ? e.parameter : {};
-}
-
-function actionHealth() {
-  var cfg = checkConfiguration();
-  var result = { configuration: cfg, sheets: [] };
-  if (cfg.spreadsheetIdConfigured) {
-    var ss = getSS();
-    result.spreadsheetName = ss.getName();
-    result.sheets = ss.getSheets().map(function(s) { return s.getName(); });
-  }
-  return successResponse(result);
-}
-
-function actionSetup(params) {
-  // Setup không được mở công khai: yêu cầu sync key.
-  if (!CONFIG.SYNC_API_KEY || !safeCompare(String(params.apiKey || ''), CONFIG.SYNC_API_KEY)) {
-    return errorResponse('Sai API key.', 'FORBIDDEN');
-  }
-  setupSheets();
-  return successResponse({ message: 'Đã kiểm tra/tạo đủ các sheet.', sheets: [CONFIG.SHEET_EMPLOYEES, CONFIG.SHEET_PAYROLL, CONFIG.SHEET_AUDIT, CONFIG.SHEET_SYNC_STATUS] });
 }

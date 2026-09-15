@@ -1,196 +1,195 @@
 /**
- * Sync.gs - VBA -> Google Sheets
- * IMPORTANT: all writes are batched. Do NOT use appendRow/setValue in a loop.
+ * Sync.gs
+ * -----------------------------------------------------------------------
+ * Endpoint nhận dữ liệu do VBA đẩy lên (từ file Excel .xlsb). Bảo vệ bằng
+ * SYNC_API_KEY (không dùng session token nhân viên/admin).
+ *
+ * Payload dự kiến từ VBA (xem vba/SyncPayroll.bas):
+ * {
+ *   apiKey: "...",
+ *   xuong: "Snack" | "Flexible",
+ *   thang: "08-2026",
+ *   employees: [ { cccd, maNV, hoTen, phongBan, boPhan, chucVu }, ... ],
+ *   payroll:   [ { maNV, hoTen, ...tất cả cột lương... }, ... ]
+ * }
+ * -----------------------------------------------------------------------
  */
-function actionSync(params) {
-  var started = new Date().getTime();
 
-  if (!CONFIG.SYNC_API_KEY) {
-    return errorResponse('GAS chưa cấu hình SYNC_API_KEY.', 'SYNC_NOT_CONFIGURED');
-  }
-  if (!safeCompare(String(params.apiKey || ''), CONFIG.SYNC_API_KEY)) {
+function actionSync(params) {
+  if (!params.apiKey || !safeCompare(String(params.apiKey), CONFIG.SYNC_API_KEY)) {
     return errorResponse('Sai API key.', 'FORBIDDEN');
   }
 
   var xuong = String(params.xuong || '').trim();
   var thang = String(params.thang || '').trim();
-  var employees = Array.isArray(params.employees) ? params.employees : [];
-  var payroll = Array.isArray(params.payroll) ? params.payroll : [];
-
-  if (!xuong || !thang) return errorResponse('Thiếu thông tin xuong/thang.', 'MISSING_FIELDS');
-  if (!/^\d{2}-\d{4}$/.test(thang)) return errorResponse('Tháng phải có dạng MM-YYYY.', 'INVALID_MONTH');
-  if (!employees.length && !payroll.length) return errorResponse('Payload không có employees/payroll.', 'EMPTY_PAYLOAD');
-
-  /*
-   * KHÔNG dùng ScriptLock.waitLock() ở đây.
-   *
-   * Lý do: một request VBA có thể mất > 120 giây ở phía Google gateway.
-   * Nếu request đó còn giữ ScriptLock thì request kế tiếp (Flexible) sẽ
-   * chờ lock và tiếp tục timeout/502 dù VBA đã báo timeout.
-   *
-   * VBA hiện gửi Snack rồi mới gửi Flexible, nên việc khóa toàn project
-   * không cần thiết. Mỗi lần sync được ghi theo (Xuong, Thang) và các
-   * thao tác ghi đều dùng batch setValues().
-   */
-
-  try {
-    var empResult = upsertEmployeesBatch(employees, xuong);
-    var payrollResult = upsertPayrollBatch(payroll, xuong, thang);
-
-    updateSyncStatus(
-      xuong,
-      thang,
-      payrollResult.count,
-      'OK',
-      empResult.count + ' nhân viên, ' + payrollResult.count + ' phiếu lương'
-    );
-
-    /*
-     * Audit chỉ ghi 1 dòng sau khi hoàn tất, không append trong vòng lặp.
-     */
-    writeAudit(
-      'SYSTEM_VBA',
-      'SYNC',
-      xuong + ' ' + thang,
-      empResult.count + ' employees, ' + payrollResult.count + ' payroll rows'
-    );
-
-    return successResponse({
-      message: 'Đồng bộ thành công.',
-      employeesProcessed: empResult.count,
-      payrollProcessed: payrollResult.count,
-      thang: thang,
-      xuong: xuong,
-      durationMs: new Date().getTime() - started
-    });
-
-  } catch (err) {
-    try {
-      updateSyncStatus(xuong, thang, 0, 'ERROR', err.message || String(err));
-    } catch (_) {}
-    return errorResponse(
-      'Lỗi đồng bộ: ' + (err.message || String(err)),
-      'SYNC_ERROR'
-    );
+  if (!xuong || !thang) {
+    return errorResponse('Thiếu thông tin xuong/thang.', 'MISSING_FIELDS');
   }
+
+  var employees = params.employees || [];
+  var payroll = params.payroll || [];
+
+  var empResult = upsertEmployees(employees, xuong);
+  var payrollResult = upsertPayroll(payroll, xuong, thang);
+
+  updateSyncStatus(xuong, thang, empResult.count + payrollResult.count, 'OK',
+    empResult.count + ' nhân viên, ' + payrollResult.count + ' phiếu lương');
+
+  writeAudit('SYSTEM_VBA', 'SYNC', xuong + ' ' + thang,
+    empResult.count + ' employees, ' + payrollResult.count + ' payroll rows');
+
+  return successResponse({
+    message: 'Đồng bộ thành công.',
+    employeesProcessed: empResult.count,
+    payrollProcessed: payrollResult.count
+  });
 }
 
-function upsertEmployeesBatch(employees, xuong) {
-  var headersList = ['CCCD','MaNV','HoTen','Xuong','PhongBan','BoPhan','ChucVu','PasswordHash','PasswordSalt','MustChangePassword','Role','UpdatedAt'];
-  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES, headersList);
-  var headers = requireHeaders(sheet, headersList);
-  var lastRow = sheet.getLastRow();
-  var lastCol = headersList.length;
-  var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
-  var byMa = {};
-  for (var i = 0; i < values.length; i++) {
-    var ma = String(values[i][headers.MaNV - 1] == null ? '' : values[i][headers.MaNV - 1]).trim();
-    if (ma && !byMa[ma]) byMa[ma] = i;
-  }
+/**
+ * Thêm mới hoặc cập nhật nhân viên (dò theo MaNV). Nhân viên mới sẽ được đặt
+ * mật khẩu ban đầu = Mã nhân viên, bắt buộc đổi mật khẩu lần đầu.
+ */
+function upsertEmployees(employees, xuong) {
+  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var existing = sheetToObjects(sheet);
+  var byMaNV = {};
+  existing.forEach(function (r) { byMaNV[String(r.MaNV)] = r; });
 
   var now = formatDateVN(new Date());
-  var processed = 0;
-  employees.forEach(function(e) {
-    var maNV = String(e.maNV || '').trim();
-    if (!maNV) return;
-    var idx = Object.prototype.hasOwnProperty.call(byMa, maNV) ? byMa[maNV] : -1;
-    var row;
-    if (idx >= 0) {
-      row = values[idx];
-      // Existing password/salt/must-change/role are intentionally preserved.
-      row[headers.CCCD - 1] = normalizeCCCD(e.cccd);
-      row[headers.MaNV - 1] = maNV;
-      row[headers.HoTen - 1] = e.hoTen || row[headers.HoTen - 1] || '';
-      row[headers.Xuong - 1] = xuong;
-      row[headers.PhongBan - 1] = e.phongBan || '';
-      row[headers.BoPhan - 1] = e.boPhan || '';
-      row[headers.ChucVu - 1] = e.chucVu || '';
-      row[headers.UpdatedAt - 1] = now;
+  var count = 0;
+
+  employees.forEach(function (e) {
+    if (!e.maNV) return;
+    var maNV = String(e.maNV).trim();
+    var cccd = normalizeCCCD(e.cccd);
+    var found = byMaNV[maNV];
+
+    if (found) {
+      // Cập nhật thông tin, KHÔNG đụng vào PasswordHash/Salt/MustChangePassword
+      setRowField(sheet, headers, found.__row, 'CCCD', "'" + cccd); // giữ số 0 đầu
+      setRowField(sheet, headers, found.__row, 'HoTen', e.hoTen || found.HoTen);
+      setRowField(sheet, headers, found.__row, 'Xuong', xuong);
+      setRowField(sheet, headers, found.__row, 'PhongBan', e.phongBan || '');
+      setRowField(sheet, headers, found.__row, 'BoPhan', e.boPhan || '');
+      setRowField(sheet, headers, found.__row, 'ChucVu', e.chucVu || '');
+      setRowField(sheet, headers, found.__row, 'UpdatedAt', now);
     } else {
-      row = new Array(lastCol).fill('');
-      row[headers.CCCD - 1] = normalizeCCCD(e.cccd);
-      row[headers.MaNV - 1] = maNV;
-      row[headers.HoTen - 1] = e.hoTen || '';
-      row[headers.Xuong - 1] = xuong;
-      row[headers.PhongBan - 1] = e.phongBan || '';
-      row[headers.BoPhan - 1] = e.boPhan || '';
-      row[headers.ChucVu - 1] = e.chucVu || '';
       var salt = generateSalt();
-      row[headers.PasswordSalt - 1] = salt;
-      row[headers.PasswordHash - 1] = hashPassword(maNV, salt);
-      row[headers.MustChangePassword - 1] = true;
-      row[headers.Role - 1] = 'employee';
-      row[headers.UpdatedAt - 1] = now;
-      byMa[maNV] = values.length;
-      values.push(row);
+      var hash = hashPassword(maNV, salt); // mật khẩu ban đầu = mã nhân viên
+      var newRow = [];
+      headers.forEach(function (h) {
+        switch (h) {
+          case 'CCCD': newRow.push("'" + cccd); break;
+          case 'MaNV': newRow.push(maNV); break;
+          case 'HoTen': newRow.push(e.hoTen || ''); break;
+          case 'Xuong': newRow.push(xuong); break;
+          case 'PhongBan': newRow.push(e.phongBan || ''); break;
+          case 'BoPhan': newRow.push(e.boPhan || ''); break;
+          case 'ChucVu': newRow.push(e.chucVu || ''); break;
+          case 'PasswordHash': newRow.push(hash); break;
+          case 'PasswordSalt': newRow.push(salt); break;
+          case 'MustChangePassword': newRow.push(true); break;
+          case 'Role': newRow.push('employee'); break;
+          case 'UpdatedAt': newRow.push(now); break;
+          default: newRow.push('');
+        }
+      });
+      sheet.appendRow(newRow);
     }
-    processed++;
+    count++;
   });
 
-  if (values.length) {
-    sheet.getRange(2, 1, values.length, lastCol).setValues(values);
-    sheet.getRange(2, headers.CCCD, values.length, 1).setNumberFormat('@');
-    sheet.getRange(2, headers.MaNV, values.length, 1).setNumberFormat('@');
-  }
-  return {count: processed};
+  return { count: count };
 }
 
-function upsertPayrollBatch(payroll, xuong, thang) {
-  var headersList = ['MaNV','HoTen','Xuong','Thang','LuongCoBan','SoNgayLamViec','SoNgayLe','SoNgayNghiHuongLuong','SoNgayNghiKhongLuong','SoNgayNghiHuongLuongToiThieuVung','LuongThang','SoGioNgoaiGio','SoGioNgayNghi','SoGioNgoaiGioNgayNghi','SoGioTangCaDem','SoGioLamNgayLe','SoGioNgoaiGioNgayLe','SoGioTangCaDemNgayLe','SoNgayLamCaDem','LuongNgoaiGio','TienKhac','TienKyLuat','TienGanBo2Nam','TienGanBo5Nam','TienGanBo10Nam','TienNhaO','TienDiLai','TienThuongChuyenCan','HoaHongThuongVuotDinhMuc','TroCapThoiViecPhepNam','TongKhoanThuNhap','BHXH','BHYT','BHTN','ThueThuNhap','TamUng','KhauTruKhac','LuongThucLinh','UpdatedAt'];
-  var sheet = getOrCreateSheet(CONFIG.SHEET_PAYROLL, headersList);
-  var headers = requireHeaders(sheet, headersList);
-  var lastRow = sheet.getLastRow();
-  var lastCol = headersList.length;
-  var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
+/**
+ * Thêm mới hoặc cập nhật (upsert theo MaNV+Thang) 1 dòng phiếu lương.
+ */
+function upsertPayroll(payroll, xuong, thang) {
+  var sheet = getOrCreateSheet(CONFIG.SHEET_PAYROLL);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var existing = sheetToObjects(sheet);
   var byKey = {};
-  for (var i = 0; i < values.length; i++) {
-    var ma = String(values[i][headers.MaNV - 1] == null ? '' : values[i][headers.MaNV - 1]).trim();
-    var th = String(values[i][headers.Thang - 1] == null ? '' : values[i][headers.Thang - 1]).trim();
-    if (ma && th && !byKey[ma + '|' + th]) byKey[ma + '|' + th] = i;
-  }
-  var now = formatDateVN(new Date());
-  var processed = 0;
-  payroll.forEach(function(p) {
-    var maNV = String(p.maNV || '').trim();
-    if (!maNV) return;
-    var key = maNV + '|' + thang;
-    var data = buildPayrollRowData(p, xuong, thang, now, headersList);
-    var idx = Object.prototype.hasOwnProperty.call(byKey, key) ? byKey[key] : -1;
-    if (idx >= 0) values[idx] = data;
-    else { byKey[key] = values.length; values.push(data); }
-    processed++;
+  existing.forEach(function (r) {
+    byKey[String(r.MaNV) + '|' + r.Thang] = r;
   });
-  if (values.length) sheet.getRange(2, 1, values.length, lastCol).setValues(values);
-  return {count: processed};
+
+  var now = formatDateVN(new Date());
+  var count = 0;
+
+  payroll.forEach(function (p) {
+    if (!p.maNV) return;
+    var key = String(p.maNV).trim() + '|' + thang;
+    var found = byKey[key];
+    var rowData = buildPayrollRowData(p, xuong, thang, now, headers);
+
+    if (found) {
+      sheet.getRange(found.__row, 1, 1, headers.length).setValues([rowData]);
+    } else {
+      sheet.appendRow(rowData);
+    }
+    count++;
+  });
+
+  return { count: count };
 }
 
 function buildPayrollRowData(p, xuong, thang, now, headers) {
   var map = {
-    MaNV:p.maNV, HoTen:p.hoTen||'', Xuong:xuong, Thang:thang,
-    LuongCoBan:p.luongCoBan||0, SoNgayLamViec:p.soNgayLamViec||0, SoNgayLe:p.soNgayLe||0,
-    SoNgayNghiHuongLuong:p.soNgayNghiHuongLuong||0, SoNgayNghiKhongLuong:p.soNgayNghiKhongLuong||0,
-    SoNgayNghiHuongLuongToiThieuVung:p.soNgayNghiHuongLuongToiThieuVung||0, LuongThang:p.luongThang||0,
-    SoGioNgoaiGio:p.soGioNgoaiGio||0, SoGioNgayNghi:p.soGioNgayNghi||0, SoGioNgoaiGioNgayNghi:p.soGioNgoaiGioNgayNghi||0,
-    SoGioTangCaDem:p.soGioTangCaDem||0, SoGioLamNgayLe:p.soGioLamNgayLe||0, SoGioNgoaiGioNgayLe:p.soGioNgoaiGioNgayLe||0,
-    SoGioTangCaDemNgayLe:p.soGioTangCaDemNgayLe||0, SoNgayLamCaDem:p.soNgayLamCaDem||0, LuongNgoaiGio:p.luongNgoaiGio||0,
-    TienKhac:p.tienKhac||0, TienKyLuat:p.tienKyLuat||0, TienGanBo2Nam:p.tienGanBo2Nam||0, TienGanBo5Nam:p.tienGanBo5Nam||0,
-    TienGanBo10Nam:p.tienGanBo10Nam||0, TienNhaO:p.tienNhaO||0, TienDiLai:p.tienDiLai||0, TienThuongChuyenCan:p.tienThuongChuyenCan||0,
-    HoaHongThuongVuotDinhMuc:p.hoaHongThuongVuotDinhMuc||0, TroCapThoiViecPhepNam:p.troCapThoiViecPhepNam||0,
-    TongKhoanThuNhap:p.tongKhoanThuNhap||0, BHXH:p.bhxh||0, BHYT:p.bhyt||0, BHTN:p.bhtn||0, ThueThuNhap:p.thueThuNhap||0,
-    TamUng:p.tamUng||0, KhauTruKhac:p.khauTruKhac||0, LuongThucLinh:p.luongThucLinh||0, UpdatedAt:now
+    MaNV: p.maNV, HoTen: p.hoTen || '', Xuong: xuong, Thang: thang,
+    LuongCoBan: p.luongCoBan || 0,
+    SoNgayLamViec: p.soNgayLamViec || 0,
+    SoNgayLe: p.soNgayLe || 0,
+    SoNgayNghiHuongLuong: p.soNgayNghiHuongLuong || 0,
+    SoNgayNghiKhongLuong: p.soNgayNghiKhongLuong || 0,
+    SoNgayNghiHuongLuongToiThieuVung: p.soNgayNghiHuongLuongToiThieuVung || 0,
+    LuongThang: p.luongThang || 0,
+    SoGioNgoaiGio: p.soGioNgoaiGio || 0,
+    SoGioNgayNghi: p.soGioNgayNghi || 0,
+    SoGioNgoaiGioNgayNghi: p.soGioNgoaiGioNgayNghi || 0,
+    SoGioTangCaDem: p.soGioTangCaDem || 0,
+    SoGioLamNgayLe: p.soGioLamNgayLe || 0,
+    SoGioNgoaiGioNgayLe: p.soGioNgoaiGioNgayLe || 0,
+    SoGioTangCaDemNgayLe: p.soGioTangCaDemNgayLe || 0,
+    SoNgayLamCaDem: p.soNgayLamCaDem || 0,
+    LuongNgoaiGio: p.luongNgoaiGio || 0,
+    TienKhac: p.tienKhac || 0,
+    TienKyLuat: p.tienKyLuat || 0,
+    TienGanBo2Nam: p.tienGanBo2Nam || 0,
+    TienGanBo5Nam: p.tienGanBo5Nam || 0,
+    TienGanBo10Nam: p.tienGanBo10Nam || 0,
+    TienNhaO: p.tienNhaO || 0,
+    TienDiLai: p.tienDiLai || 0,
+    TienThuongChuyenCan: p.tienThuongChuyenCan || 0,
+    HoaHongThuongVuotDinhMuc: p.hoaHongThuongVuotDinhMuc || 0,
+    TroCapThoiViecPhepNam: p.troCapThoiViecPhepNam || 0,
+    TongKhoanThuNhap: p.tongKhoanThuNhap || 0,
+    BHXH: p.bhxh || 0,
+    BHYT: p.bhyt || 0,
+    BHTN: p.bhtn || 0,
+    ThueThuNhap: p.thueThuNhap || 0,
+    TamUng: p.tamUng || 0,
+    KhauTruKhac: p.khauTruKhac || 0,
+    LuongThucLinh: p.luongThucLinh || 0,
+    UpdatedAt: now
   };
-  return headers.map(function(h){ return Object.prototype.hasOwnProperty.call(map,h) ? map[h] : ''; });
+  return headers.map(function (h) { return map.hasOwnProperty(h) ? map[h] : ''; });
+}
+
+function setRowField(sheet, headers, row, fieldName, value) {
+  var col = headers.indexOf(fieldName) + 1;
+  if (col > 0) sheet.getRange(row, col).setValue(value);
 }
 
 function updateSyncStatus(xuong, thang, soDong, trangThai, ghiChu) {
-  var sheet = getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS, ['Xuong','Thang','LastSyncAt','SoDongDaXuLy','TrangThai','GhiChu']);
-  var lastRow = sheet.getLastRow();
-  var values = lastRow >= 2 ? sheet.getRange(2,1,lastRow-1,6).getValues() : [];
-  var found = -1;
-  for (var i=0;i<values.length;i++) {
-    if (String(values[i][0]).trim()===xuong && String(values[i][1]).trim()===thang) { found=i; break; }
+  var sheet = getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS);
+  var rows = sheetToObjects(sheet);
+  var found = rows.filter(function (r) { return r.Xuong === xuong && r.Thang === thang; })[0];
+  var now = formatDateVN(new Date());
+  if (found) {
+    sheet.getRange(found.__row, 1, 1, 6).setValues([[xuong, thang, now, soDong, trangThai, ghiChu]]);
+  } else {
+    sheet.appendRow([xuong, thang, now, soDong, trangThai, ghiChu]);
   }
-  var data = [xuong,thang,formatDateVN(new Date()),soDong,trangThai,ghiChu||''];
-  if (found >= 0) sheet.getRange(found+2,1,1,6).setValues([data]);
-  else sheet.getRange(Math.max(2,lastRow+1),1,1,6).setValues([data]);
 }
