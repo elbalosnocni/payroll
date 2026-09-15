@@ -1,202 +1,74 @@
-/**
- * Auth.gs
- * -----------------------------------------------------------------------
- * Đăng nhập, đổi mật khẩu, quản lý session (token), phân quyền employee/admin.
- *
- * Lưu ý bảo mật:
- * - Mật khẩu KHÔNG BAO GIỜ được lưu ở dạng plaintext.
- * - Băm mật khẩu bằng SHA-256 lặp nhiều vòng (HASH_ITERATIONS) kèm salt riêng
- *   cho từng user + pepper chung (PASSWORD_PEPPER) => tương đương PBKDF2 đơn giản.
- * - Session token là chuỗi ngẫu nhiên, lưu trong CacheService (không lưu trong
- *   Sheet để tránh lộ khi share quyền xem Sheet), có thời hạn SESSION_DURATION_SEC.
- * -----------------------------------------------------------------------
- */
+function actionLogin(p) {
+  var cccd=normalizeCCCD(p.cccd), password=String(p.password||'');
+  if(cccd.length<8 || !password) return errorResponse('Vui lòng nhập đầy đủ CCCD và mật khẩu.','MISSING_FIELDS');
 
-/**
- * Sinh salt ngẫu nhiên (hex, 32 ký tự).
- */
-function generateSalt() {
-  return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  var throttleKey='LOGIN_'+cccd;
+  var cache=CacheService.getScriptCache();
+  if(cache.get(throttleKey)==='BLOCK') return errorResponse('Đăng nhập thất bại quá nhiều lần. Vui lòng thử lại sau 15 phút.','RATE_LIMIT');
+
+  var emp=findEmployeeByCCCD(cccd);
+  if(!emp) { recordLoginFail(throttleKey); return errorResponse('Sai CCCD hoặc mật khẩu.','INVALID_LOGIN'); }
+
+  var valid=false;
+  if(emp.PasswordHash && emp.PasswordSalt) valid=safeCompare(hashPassword(password,String(emp.PasswordSalt)),String(emp.PasswordHash));
+  if(!valid) { recordLoginFail(throttleKey); return errorResponse('Sai CCCD hoặc mật khẩu.','INVALID_LOGIN'); }
+  cache.remove(throttleKey);
+
+  var token=newToken();
+  var session={cccd:cccd,maNV:String(emp.MaNV),role:normalizeRole(emp.Role),mustChangePassword:isTrue(emp.MustChangePassword),createdAt:Date.now()};
+  cache.put(tokenCacheKey(token),JSON.stringify(session),CONFIG.SESSION_TTL_SEC);
+  writeAudit(cccd,'LOGIN',emp.MaNV,'Đăng nhập thành công');
+  return successResponse({token:token,role:session.role,mustChangePassword:session.mustChangePassword,hoTen:emp.HoTen});
 }
-
-/**
- * Băm mật khẩu: lặp SHA-256 nhiều vòng với salt + pepper.
- */
-function hashPassword(password, salt) {
-  var input = String(password) + '|' + salt + '|' + CONFIG.PASSWORD_PEPPER;
-  var digestBytes = Utilities.newBlob(input).getBytes();
-  for (var i = 0; i < CONFIG.HASH_ITERATIONS; i++) {
-    digestBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, digestBytes);
-  }
-  return Utilities.base64Encode(digestBytes);
+function recordLoginFail(key){
+  var cache=CacheService.getScriptCache(), n=Number(cache.get(key)||0)+1;
+  if(n>=CONFIG.MAX_LOGIN_ATTEMPTS) cache.put(key,'BLOCK',CONFIG.LOGIN_WINDOW_SEC);
+  else cache.put(key,String(n),CONFIG.LOGIN_WINDOW_SEC);
 }
+function isTrue(v){ return v===true || String(v).toLowerCase()==='true' || String(v)==='1'; }
+function normalizeRole(v){ return String(v||'EMPLOYEE').toUpperCase()==='ADMIN' ? 'ADMIN' : 'EMPLOYEE'; }
 
-function verifyPassword(password, salt, expectedHash) {
-  var actualHash = hashPassword(password, salt);
-  return safeCompare(actualHash, expectedHash);
+function requireAuth(token){
+  if(!token) return null;
+  var raw=CacheService.getScriptCache().get(tokenCacheKey(token));
+  if(!raw) return null;
+  try{return JSON.parse(raw);}catch(e){return null;}
 }
-
-/**
- * Sinh token session ngẫu nhiên.
- */
-function generateToken() {
-  return Utilities.getUuid() + Utilities.getUuid();
+function requireAdmin(token){
+  var s=requireAuth(token); return s && s.role==='ADMIN' ? s : null;
 }
-
-/**
- * Tạo session mới cho 1 user (employee hoặc admin), lưu vào CacheService.
- * Trả về token.
- */
-function createSession(cccd, role) {
-  var token = generateToken();
-  var cache = CacheService.getScriptCache();
-  var payload = JSON.stringify({ cccd: cccd, role: role, createdAt: new Date().getTime() });
-  cache.put('session_' + token, payload, CONFIG.SESSION_DURATION_SEC);
-  return token;
+function findEmployeeByCCCD(cccd){
+  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_EMPLOYEES));
+  cccd=normalizeCCCD(cccd);
+  return rows.filter(function(r){return normalizeCCCD(r.CCCD)===cccd;})[0] || null;
 }
-
-/**
- * Lấy thông tin session từ token. Trả về null nếu không hợp lệ / hết hạn.
- */
-function getSession(token) {
-  if (!token) return null;
-  var cache = CacheService.getScriptCache();
-  var raw = cache.get('session_' + token);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
+function findEmployeeByMaNV(maNV){
+  var rows=sheetToObjects(getOrCreateSheet(CONFIG.SHEET_EMPLOYEES));
+  return rows.filter(function(r){return String(r.MaNV).trim()===String(maNV).trim();})[0] || null;
 }
+function actionChangePassword(p){
+  var s=requireAuth(p.token);
+  if(!s) return errorResponse('Phiên đăng nhập đã hết hạn.','SESSION_EXPIRED');
+  var oldPw=String(p.oldPassword||''), newPw=String(p.newPassword||''), confirm=String(p.confirmPassword||'');
+  if(!oldPw||!newPw||!confirm) return errorResponse('Vui lòng nhập đủ 3 trường mật khẩu.','MISSING_FIELDS');
+  if(newPw.length<8) return errorResponse('Mật khẩu mới phải có ít nhất 8 ký tự.','WEAK_PASSWORD');
+  if(newPw!==confirm) return errorResponse('Xác nhận mật khẩu không khớp.','PASSWORD_MISMATCH');
+  if(oldPw===newPw) return errorResponse('Mật khẩu mới phải khác mật khẩu hiện tại.','SAME_PASSWORD');
 
-function destroySession(token) {
-  var cache = CacheService.getScriptCache();
-  cache.remove('session_' + token);
-}
+  var emp=findEmployeeByCCCD(s.cccd);
+  if(!emp) return errorResponse('Không tìm thấy tài khoản.','NOT_FOUND');
+  if(!safeCompare(hashPassword(oldPw,String(emp.PasswordSalt)),String(emp.PasswordHash))) return errorResponse('Mật khẩu hiện tại không đúng.','INVALID_PASSWORD');
 
-/**
- * Tìm dòng nhân viên theo CCCD trong sheet Employees.
- */
-function findEmployeeByCCCD(cccd) {
-  var normalized = normalizeCCCD(cccd);
-  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
-  var rows = sheetToObjects(sheet);
-  for (var i = 0; i < rows.length; i++) {
-    if (normalizeCCCD(rows[i].CCCD) === normalized) {
-      return rows[i];
-    }
-  }
-  return null;
-}
+  var salt=generateSalt(), hash=hashPassword(newPw,salt), sh=getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
+  setField(sh,emp.__row,'PasswordSalt',salt);
+  setField(sh,emp.__row,'PasswordHash',hash);
+  setField(sh,emp.__row,'MustChangePassword',false);
+  setField(sh,emp.__row,'UpdatedAt',formatDateVN(new Date()));
+  writeAudit(s.cccd,'CHANGE_PASSWORD',emp.MaNV,'Đổi mật khẩu thành công');
 
-/**
- * POST /login
- * body: { cccd, password }
- */
-function actionLogin(params) {
-  var cccd = normalizeCCCD(params.cccd);
-  var password = String(params.password || '');
-
-  if (!cccd || !password) {
-    return errorResponse('Vui lòng nhập đầy đủ Số căn cước và mật khẩu.', 'MISSING_FIELDS');
-  }
-
-  var emp = findEmployeeByCCCD(cccd);
-  if (!emp) {
-    writeAudit(cccd, 'LOGIN_FAILED', cccd, 'Không tìm thấy CCCD');
-    return errorResponse('Số căn cước hoặc mật khẩu không đúng.', 'INVALID_CREDENTIALS');
-  }
-
-  if (!emp.PasswordHash || !emp.PasswordSalt) {
-    writeAudit(cccd, 'LOGIN_FAILED', cccd, 'Tài khoản chưa có mật khẩu, cần admin reset');
-    return errorResponse('Tài khoản chưa được khởi tạo mật khẩu. Vui lòng liên hệ Admin.', 'NO_PASSWORD');
-  }
-
-  var valid = verifyPassword(password, emp.PasswordSalt, emp.PasswordHash);
-  if (!valid) {
-    writeAudit(cccd, 'LOGIN_FAILED', cccd, 'Sai mật khẩu');
-    return errorResponse('Số căn cước hoặc mật khẩu không đúng.', 'INVALID_CREDENTIALS');
-  }
-
-  var role = emp.Role === 'admin' ? 'admin' : 'employee';
-  var token = createSession(cccd, role);
-  writeAudit(cccd, 'LOGIN_SUCCESS', cccd, 'role=' + role);
-
-  return successResponse({
-    token: token,
-    role: role,
-    hoTen: emp.HoTen,
-    mustChangePassword: emp.MustChangePassword === true || emp.MustChangePassword === 'TRUE' || emp.MustChangePassword === 'true'
-  });
-}
-
-/**
- * POST /changePassword
- * body: { token, oldPassword, newPassword, confirmPassword }
- */
-function actionChangePassword(params) {
-  var session = getSession(params.token);
-  if (!session) {
-    return errorResponse('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 'SESSION_EXPIRED');
-  }
-
-  var oldPassword = String(params.oldPassword || '');
-  var newPassword = String(params.newPassword || '');
-  var confirmPassword = String(params.confirmPassword || '');
-
-  if (!oldPassword || !newPassword || !confirmPassword) {
-    return errorResponse('Vui lòng nhập đầy đủ thông tin.', 'MISSING_FIELDS');
-  }
-  if (newPassword !== confirmPassword) {
-    return errorResponse('Mật khẩu mới và xác nhận mật khẩu không khớp.', 'PASSWORD_MISMATCH');
-  }
-  if (newPassword.length < 6) {
-    return errorResponse('Mật khẩu mới phải có ít nhất 6 ký tự.', 'PASSWORD_TOO_SHORT');
-  }
-  if (newPassword === oldPassword) {
-    return errorResponse('Mật khẩu mới phải khác mật khẩu hiện tại.', 'PASSWORD_SAME');
-  }
-
-  var emp = findEmployeeByCCCD(session.cccd);
-  if (!emp) {
-    return errorResponse('Không tìm thấy tài khoản.', 'NOT_FOUND');
-  }
-
-  var validOld = verifyPassword(oldPassword, emp.PasswordSalt, emp.PasswordHash);
-  if (!validOld) {
-    writeAudit(session.cccd, 'CHANGE_PASSWORD_FAILED', session.cccd, 'Sai mật khẩu hiện tại');
-    return errorResponse('Mật khẩu hiện tại không đúng.', 'INVALID_OLD_PASSWORD');
-  }
-
-  var newSalt = generateSalt();
-  var newHash = hashPassword(newPassword, newSalt);
-
-  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
-  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  var colHash = headers.indexOf('PasswordHash') + 1;
-  var colSalt = headers.indexOf('PasswordSalt') + 1;
-  var colMustChange = headers.indexOf('MustChangePassword') + 1;
-
-  sheet.getRange(emp.__row, colHash).setValue(newHash);
-  sheet.getRange(emp.__row, colSalt).setValue(newSalt);
-  sheet.getRange(emp.__row, colMustChange).setValue(false);
-
-  writeAudit(session.cccd, 'CHANGE_PASSWORD_SUCCESS', session.cccd, '');
-
-  return successResponse({ message: 'Đổi mật khẩu thành công.' });
-}
-
-/**
- * Kiểm tra session hợp lệ và bắt buộc phải là admin. Trả về session object
- * nếu hợp lệ, hoặc null nếu không.
- */
-function requireAdmin(token) {
-  var session = getSession(token);
-  if (!session || session.role !== 'admin') return null;
-  return session;
-}
-
-function requireAuth(token) {
-  return getSession(token);
+  // session mới, cập nhật cờ mustChangePassword
+  var newToken=newToken(), ns={cccd:s.cccd,maNV:s.maNV,role:s.role,mustChangePassword:false,createdAt:Date.now()};
+  CacheService.getScriptCache().put(tokenCacheKey(newToken),JSON.stringify(ns),CONFIG.SESSION_TTL_SEC);
+  CacheService.getScriptCache().remove(tokenCacheKey(p.token));
+  return successResponse({token:newToken,mustChangePassword:false,message:'Đổi mật khẩu thành công.'});
 }

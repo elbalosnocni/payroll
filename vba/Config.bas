@@ -12,7 +12,7 @@ Public Const GAS_URL As String = "https://script.google.com/macros/s/AKfycbzCHDk
 
 ' Phai TRUNG KHOP voi Script Properties "SYNC_API_KEY" ben Apps Script.
 ' KHONG dung chung voi mat khau file Excel.
-Public Const SYNC_API_KEY As String = "CHANGE_ME_SYNC_KEY"
+Public Const SYNC_API_KEY As String = "PASTE_THE_SAME_LONG_RANDOM_KEY_AS_GAS"
 
 ' ===== Mat khau mo file .xlsb =====
 Public Const XLSB_PASSWORD As String = "1234"

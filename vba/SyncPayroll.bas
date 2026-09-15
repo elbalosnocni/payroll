@@ -12,6 +12,14 @@ Attribute VB_Name = "SyncPayroll"
 '-------------------------------------------------------------------------
 Option Explicit
 
+Public Sub RunScheduledSync()
+    If Day(Date) <> 10 Then
+        LogMessage "Bo qua: hom nay khong phai ngay 10."
+        Exit Sub
+    End If
+    RunSync
+End Sub
+
 Public Sub RunSync()
     Dim targetMonth As Integer, targetYear As Integer
     GetTargetMonthYear targetMonth, targetYear
@@ -285,7 +293,20 @@ Private Function SafeText(ByVal s As String) As String
 End Function
 
 Private Function NormalizeName(ByVal s As String) As String
-    NormalizeName = UCase(Trim(s))
+    s = UCase$(Trim$(s))
+    s = Replace(s, "Á", "A"): s = Replace(s, "À", "A"): s = Replace(s, "Ả", "A"): s = Replace(s, "Ã", "A"): s = Replace(s, "Ạ", "A")
+    s = Replace(s, "Ă", "A"): s = Replace(s, "Ắ", "A"): s = Replace(s, "Ằ", "A"): s = Replace(s, "Ẳ", "A"): s = Replace(s, "Ẵ", "A"): s = Replace(s, "Ặ", "A")
+    s = Replace(s, "Â", "A"): s = Replace(s, "Ấ", "A"): s = Replace(s, "Ầ", "A"): s = Replace(s, "Ẩ", "A"): s = Replace(s, "Ẫ", "A"): s = Replace(s, "Ậ", "A")
+    s = Replace(s, "Đ", "D"): s = Replace(s, "É", "E"): s = Replace(s, "È", "E"): s = Replace(s, "Ẻ", "E"): s = Replace(s, "Ẽ", "E"): s = Replace(s, "Ẹ", "E")
+    s = Replace(s, "Ê", "E"): s = Replace(s, "Ế", "E"): s = Replace(s, "Ề", "E"): s = Replace(s, "Ể", "E"): s = Replace(s, "Ễ", "E"): s = Replace(s, "Ệ", "E")
+    s = Replace(s, "Í", "I"): s = Replace(s, "Ì", "I"): s = Replace(s, "Ỉ", "I"): s = Replace(s, "Ĩ", "I"): s = Replace(s, "Ị", "I")
+    s = Replace(s, "Ó", "O"): s = Replace(s, "Ò", "O"): s = Replace(s, "Ỏ", "O"): s = Replace(s, "Õ", "O"): s = Replace(s, "Ọ", "O")
+    s = Replace(s, "Ô", "O"): s = Replace(s, "Ố", "O"): s = Replace(s, "Ồ", "O"): s = Replace(s, "Ổ", "O"): s = Replace(s, "Ỗ", "O"): s = Replace(s, "Ộ", "O")
+    s = Replace(s, "Ơ", "O"): s = Replace(s, "Ớ", "O"): s = Replace(s, "Ờ", "O"): s = Replace(s, "Ở", "O"): s = Replace(s, "Ỡ", "O"): s = Replace(s, "Ợ", "O")
+    s = Replace(s, "Ú", "U"): s = Replace(s, "Ù", "U"): s = Replace(s, "Ủ", "U"): s = Replace(s, "Ũ", "U"): s = Replace(s, "Ụ", "U")
+    s = Replace(s, "Ư", "U"): s = Replace(s, "Ứ", "U"): s = Replace(s, "Ừ", "U"): s = Replace(s, "Ử", "U"): s = Replace(s, "Ữ", "U"): s = Replace(s, "Ự", "U")
+    s = Replace(s, "Ý", "Y"): s = Replace(s, "Ỳ", "Y"): s = Replace(s, "Ỷ", "Y"): s = Replace(s, "Ỹ", "Y"): s = Replace(s, "Ỵ", "Y")
+    NormalizeName = Replace(Application.WorksheetFunction.Trim(s), " ", "")
 End Function
 
 ' ===================== Goi HTTP (POST JSON, UTF-8) =====================

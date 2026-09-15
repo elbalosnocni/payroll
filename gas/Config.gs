@@ -1,94 +1,72 @@
-/**
- * Config.gs
- * -----------------------------------------------------------------------
- * Tất cả cấu hình tập trung tại đây. KHÔNG hard-code các giá trị nhạy cảm
- * (API key, Spreadsheet ID...) trực tiếp trong code khi share cho người khác;
- * nên lưu trong Script Properties (File > Project properties > Script properties)
- * và đọc ra bằng PropertiesService như bên dưới.
- * -----------------------------------------------------------------------
- */
-
 var CONFIG = {
-  // ID của Google Sheet dùng làm database (lấy trong URL của sheet)
-  SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || 'PUT_YOUR_SPREADSHEET_ID_HERE',
-
-  // Khóa bí mật dùng để VBA xác thực khi đẩy dữ liệu lên (endpoint /sync)
-  // Đặt trong Script Properties: SYNC_API_KEY
-  SYNC_API_KEY: PropertiesService.getScriptProperties().getProperty('SYNC_API_KEY') || 'CHANGE_ME_SYNC_KEY',
-
-  // Salt phụ (pepper) cộng thêm khi hash mật khẩu, tăng độ an toàn.
-  // Đặt trong Script Properties: PASSWORD_PEPPER
-  PASSWORD_PEPPER: PropertiesService.getScriptProperties().getProperty('PASSWORD_PEPPER') || 'CHANGE_ME_PEPPER',
-
-  // Tên các sheet trong Spreadsheet
+  SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
+  SYNC_API_KEY: PropertiesService.getScriptProperties().getProperty('SYNC_API_KEY') || '',
+  PASSWORD_PEPPER: PropertiesService.getScriptProperties().getProperty('PASSWORD_PEPPER') || '',
   SHEET_EMPLOYEES: 'Employees',
   SHEET_PAYROLL: 'Payroll',
   SHEET_AUDIT: 'AuditLog',
   SHEET_SYNC_STATUS: 'SyncStatus',
-
-  // Thời hạn 1 session (giây) - 8 tiếng
-  SESSION_DURATION_SEC: 8 * 60 * 60,
-
-  // Số vòng lặp băm mật khẩu (PBKDF2-like, tăng độ khó brute-force)
-  HASH_ITERATIONS: 10000,
-
-  // Danh sách domain được phép gọi API (CORS). '*' = cho phép tất cả.
-  // Nên đổi thành domain GitHub Pages thực tế của bạn, ví dụ:
-  // 'https://tenban.github.io'
-  ALLOWED_ORIGIN: '*'
+  SESSION_TTL_SEC: 8 * 60 * 60,
+  HASH_ITERATIONS: 12000,
+  MAX_LOGIN_ATTEMPTS: 8,
+  LOGIN_WINDOW_SEC: 15 * 60
 };
 
-/**
- * Lấy đối tượng Spreadsheet dùng chung trong toàn bộ project.
- */
 function getSS() {
+  if (!CONFIG.SPREADSHEET_ID) throw new Error('Chưa cấu hình SPREADSHEET_ID.');
   return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
 }
 
-/**
- * Lấy 1 sheet theo tên, tạo mới với header nếu chưa tồn tại.
- */
 function getOrCreateSheet(name, headers) {
   var ss = getSS();
-  var sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
     if (headers && headers.length) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-      sheet.setFrozenRows(1);
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sh.setFrozenRows(1);
+      sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     }
   }
-  return sheet;
+  return sh;
 }
 
-/**
- * Khởi tạo cấu trúc sheet cần thiết (chạy 1 lần thủ công từ Apps Script Editor:
- * chọn hàm setupSheets rồi bấm Run).
- */
 function setupSheets() {
   getOrCreateSheet(CONFIG.SHEET_EMPLOYEES, [
-    'CCCD', 'MaNV', 'HoTen', 'Xuong', 'PhongBan', 'BoPhan', 'ChucVu',
-    'PasswordHash', 'PasswordSalt', 'MustChangePassword', 'Role',
-    'UpdatedAt'
+    'CCCD','MaNV','HoTen','Xuong','PhongBan','BoPhan','ChucVu',
+    'PasswordHash','PasswordSalt','MustChangePassword','Role','UpdatedAt'
   ]);
   getOrCreateSheet(CONFIG.SHEET_PAYROLL, [
-    'MaNV', 'HoTen', 'Xuong', 'Thang',
-    'LuongCoBan', 'SoNgayLamViec', 'SoNgayLe', 'SoNgayNghiHuongLuong',
-    'SoNgayNghiKhongLuong', 'SoNgayNghiHuongLuongToiThieuVung', 'LuongThang',
-    'SoGioNgoaiGio', 'SoGioNgayNghi', 'SoGioNgoaiGioNgayNghi', 'SoGioTangCaDem',
-    'SoGioLamNgayLe', 'SoGioNgoaiGioNgayLe', 'SoGioTangCaDemNgayLe',
-    'SoNgayLamCaDem', 'LuongNgoaiGio',
-    'TienKhac', 'TienKyLuat', 'TienGanBo2Nam', 'TienGanBo5Nam', 'TienGanBo10Nam',
-    'TienNhaO', 'TienDiLai', 'TienThuongChuyenCan', 'HoaHongThuongVuotDinhMuc',
-    'TroCapThoiViecPhepNam', 'TongKhoanThuNhap',
-    'BHXH', 'BHYT', 'BHTN', 'ThueThuNhap', 'TamUng', 'KhauTruKhac',
-    'LuongThucLinh', 'UpdatedAt'
+    'MaNV','HoTen','Xuong','Thang','LuongCoBan','SoNgayLamViec','SoNgayLe',
+    'SoNgayNghiHuongLuong','SoNgayNghiKhongLuong','SoNgayNghiHuongLuongToiThieuVung',
+    'LuongThang','SoGioNgoaiGio','SoGioNgayNghi','SoGioNgoaiGioNgayNghi',
+    'SoGioTangCaDem','SoGioLamNgayLe','SoGioNgoaiGioNgayLe','SoGioTangCaDemNgayLe',
+    'SoNgayLamCaDem','LuongNgoaiGio','TienKhac','TienKyLuat','TienGanBo2Nam',
+    'TienGanBo5Nam','TienGanBo10Nam','TienNhaO','TienDiLai','TienThuongChuyenCan',
+    'HoaHongThuongVuotDinhMuc','TroCapThoiViecPhepNam','TongKhoanThuNhap',
+    'BHXH','BHYT','BHTN','ThueThuNhap','TamUng','KhauTruKhac','LuongThucLinh','UpdatedAt'
   ]);
-  getOrCreateSheet(CONFIG.SHEET_AUDIT, [
-    'Timestamp', 'Actor', 'Action', 'Target', 'Detail'
-  ]);
-  getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS, [
-    'Xuong', 'Thang', 'LastSyncAt', 'SoDongDaXuLy', 'TrangThai', 'GhiChu'
-  ]);
-  Logger.log('Setup hoàn tất.');
+  getOrCreateSheet(CONFIG.SHEET_AUDIT, ['Timestamp','Actor','Action','Target','Detail']);
+  getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS, ['Xuong','Thang','LastSyncAt','SoDongDaXuLy','TrangThai','GhiChu']);
+
+  var emp = getSS().getSheetByName(CONFIG.SHEET_EMPLOYEES);
+  emp.getRange('A:A').setNumberFormat('@');
+  emp.getRange('L:L').setNumberFormat('@');
+  emp.setFrozenRows(1);
+  Logger.log('Payroll system setup OK.');
+}
+
+function setInitialAdmin(maNV) {
+  maNV = String(maNV || '').trim();
+  if (!maNV) throw new Error('Thiếu Mã NV admin.');
+  var sh = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
+  var rows = sheetToObjects(sh);
+  var found = rows.filter(function(r){ return String(r.MaNV) === maNV; })[0];
+  if (!found) throw new Error('Không tìm thấy MaNV.');
+  var salt = generateSalt();
+  setField(sh, found.__row, 'PasswordHash', hashPassword(maNV, salt));
+  setField(sh, found.__row, 'PasswordSalt', salt);
+  setField(sh, found.__row, 'MustChangePassword', true);
+  setField(sh, found.__row, 'Role', 'ADMIN');
+  setField(sh, found.__row, 'UpdatedAt', formatDateVN(new Date()));
 }
