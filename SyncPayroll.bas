@@ -93,6 +93,7 @@ Private Sub SyncOneWorkshop(ByVal rootPath As String, ByVal filePrefix As String
 
     Dim jsonBody As String
     jsonBody = "{" & _
+        Json.JsonString("action") & ":" & Json.JsonString("sync") & "," & _
         Json.JsonString("apiKey") & ":" & Json.JsonString(SYNC_API_KEY) & "," & _
         Json.JsonString("xuong") & ":" & Json.JsonString(label) & "," & _
         Json.JsonString("thang") & ":" & Json.JsonString(thangStr) & "," & _
@@ -305,9 +306,11 @@ Private Function IsYellowFill(ByVal c As Range) As Boolean
     On Error Resume Next
     Dim clr As Long
     clr = c.Interior.Color
-    IsYellowFill = (clr = RGB(255, 255, 0)) Or _   ' vang chuan
-                   (clr = RGB(255, 255, 153)) Or _  ' vang nhat
-                   (clr = RGB(255, 192, 0))          ' vang/cam dam (accent)
+
+    ' Cac tone vang thuong gap: vang chuan, vang nhat, vang/cam dam (accent)
+    IsYellowFill = (clr = RGB(255, 255, 0)) Or _
+                   (clr = RGB(255, 255, 153)) Or _
+                   (clr = RGB(255, 192, 0))
     On Error GoTo 0
 End Function
 
@@ -432,10 +435,16 @@ Public Sub LogMessage(ByVal msg As String)
     On Error Resume Next
     Dim logPath As String
     logPath = Environ("TEMP") & "\SyncPayroll.log"
-    Dim fileNum As Integer
-    fileNum = FreeFile
-    Open logPath For Append As #fileNum
-    Print #fileNum, Format(Now, "yyyy-MM-dd HH:mm:ss") & " | " & msg
-    Close #fileNum
+
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim ts As Object
+    ' Format:=True (TristateTrue) => ghi file dang Unicode (UTF-16), hien thi
+    ' dung tieng Viet co dau bat ke may dang dung ma trang (code page) nao.
+    ' Truoc day dung Print # se ghi theo ANSI he thong, neu may khong dat
+    ' locale Tieng Viet thi cac ky tu co dau se bi thay bang dau "?".
+    Set ts = fso.OpenTextFile(logPath, 8, True, True)
+    ts.WriteLine Format(Now, "yyyy-MM-dd HH:mm:ss") & " | " & msg
+    ts.Close
     On Error GoTo 0
 End Sub
