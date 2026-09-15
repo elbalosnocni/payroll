@@ -3,44 +3,75 @@
  * IMPORTANT: all writes are batched. Do NOT use appendRow/setValue in a loop.
  */
 function actionSync(params) {
-  if (!CONFIG.SYNC_API_KEY) return errorResponse('GAS chưa cấu hình SYNC_API_KEY.', 'SYNC_NOT_CONFIGURED');
-  if (!safeCompare(String(params.apiKey || ''), CONFIG.SYNC_API_KEY)) return errorResponse('Sai API key.', 'FORBIDDEN');
+  var started = new Date().getTime();
+
+  if (!CONFIG.SYNC_API_KEY) {
+    return errorResponse('GAS chưa cấu hình SYNC_API_KEY.', 'SYNC_NOT_CONFIGURED');
+  }
+  if (!safeCompare(String(params.apiKey || ''), CONFIG.SYNC_API_KEY)) {
+    return errorResponse('Sai API key.', 'FORBIDDEN');
+  }
 
   var xuong = String(params.xuong || '').trim();
   var thang = String(params.thang || '').trim();
   var employees = Array.isArray(params.employees) ? params.employees : [];
   var payroll = Array.isArray(params.payroll) ? params.payroll : [];
+
   if (!xuong || !thang) return errorResponse('Thiếu thông tin xuong/thang.', 'MISSING_FIELDS');
   if (!/^\d{2}-\d{4}$/.test(thang)) return errorResponse('Tháng phải có dạng MM-YYYY.', 'INVALID_MONTH');
   if (!employees.length && !payroll.length) return errorResponse('Payload không có employees/payroll.', 'EMPTY_PAYLOAD');
 
-  var lock = LockService.getScriptLock();
-  // The VBA requests are sequential. 2 minutes is enough after batching, and prevents a stale request from blocking forever.
-  try {
-    lock.waitLock(120000);
-  } catch (e) {
-    return errorResponse('Không lấy được khóa đồng bộ sau 120 giây. Có thể một lần đồng bộ trước đang chạy. Hãy chờ rồi chạy lại.', 'LOCK_TIMEOUT');
-  }
+  /*
+   * KHÔNG dùng ScriptLock.waitLock() ở đây.
+   *
+   * Lý do: một request VBA có thể mất > 120 giây ở phía Google gateway.
+   * Nếu request đó còn giữ ScriptLock thì request kế tiếp (Flexible) sẽ
+   * chờ lock và tiếp tục timeout/502 dù VBA đã báo timeout.
+   *
+   * VBA hiện gửi Snack rồi mới gửi Flexible, nên việc khóa toàn project
+   * không cần thiết. Mỗi lần sync được ghi theo (Xuong, Thang) và các
+   * thao tác ghi đều dùng batch setValues().
+   */
 
   try {
     var empResult = upsertEmployeesBatch(employees, xuong);
     var payrollResult = upsertPayrollBatch(payroll, xuong, thang);
-    updateSyncStatus(xuong, thang, payrollResult.count, 'OK', empResult.count + ' nhân viên, ' + payrollResult.count + ' phiếu lương');
-    writeAudit('SYSTEM_VBA', 'SYNC', xuong + ' ' + thang, empResult.count + ' employees, ' + payrollResult.count + ' payroll rows');
-    SpreadsheetApp.flush();
+
+    updateSyncStatus(
+      xuong,
+      thang,
+      payrollResult.count,
+      'OK',
+      empResult.count + ' nhân viên, ' + payrollResult.count + ' phiếu lương'
+    );
+
+    /*
+     * Audit chỉ ghi 1 dòng sau khi hoàn tất, không append trong vòng lặp.
+     */
+    writeAudit(
+      'SYSTEM_VBA',
+      'SYNC',
+      xuong + ' ' + thang,
+      empResult.count + ' employees, ' + payrollResult.count + ' payroll rows'
+    );
+
     return successResponse({
       message: 'Đồng bộ thành công.',
       employeesProcessed: empResult.count,
       payrollProcessed: payrollResult.count,
       thang: thang,
       xuong: xuong,
-      durationMs: new Date().getTime() - Number(params.clientStartedAt || new Date().getTime())
+      durationMs: new Date().getTime() - started
     });
+
   } catch (err) {
-    try { updateSyncStatus(xuong, thang, 0, 'ERROR', err.message || String(err)); } catch (_) {}
-    throw err;
-  } finally {
-    lock.releaseLock();
+    try {
+      updateSyncStatus(xuong, thang, 0, 'ERROR', err.message || String(err));
+    } catch (_) {}
+    return errorResponse(
+      'Lỗi đồng bộ: ' + (err.message || String(err)),
+      'SYNC_ERROR'
+    );
   }
 }
 
@@ -49,7 +80,7 @@ function upsertEmployeesBatch(employees, xuong) {
   var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES, headersList);
   var headers = requireHeaders(sheet, headersList);
   var lastRow = sheet.getLastRow();
-  var lastCol = Math.max(sheet.getLastColumn(), headersList.length);
+  var lastCol = headersList.length;
   var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
   var byMa = {};
   for (var i = 0; i < values.length; i++) {
@@ -109,7 +140,7 @@ function upsertPayrollBatch(payroll, xuong, thang) {
   var sheet = getOrCreateSheet(CONFIG.SHEET_PAYROLL, headersList);
   var headers = requireHeaders(sheet, headersList);
   var lastRow = sheet.getLastRow();
-  var lastCol = Math.max(sheet.getLastColumn(), headersList.length);
+  var lastCol = headersList.length;
   var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
   var byKey = {};
   for (var i = 0; i < values.length; i++) {
