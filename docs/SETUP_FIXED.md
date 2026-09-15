@@ -119,3 +119,24 @@ Admin có thể reset mật khẩu về `MaNV`.
 ## 9. Không bỏ qua đổi mật khẩu
 
 Bản FIXED đã bỏ nút "Bỏ qua". Khi `MustChangePassword = TRUE`, nhân viên bắt buộc hoàn thành đổi mật khẩu trước khi sử dụng hệ thống bình thường.
+
+
+## QUAN TRỌNG - Lỗi "Chưa cấu hình Script Property"
+
+`getProperty()` nhận **TÊN property**, không nhận giá trị. Phải dùng đúng:
+
+- `SPREADSHEET_ID`
+- `SYNC_API_KEY`
+- `PASSWORD_PEPPER`
+
+Không viết ID Google Sheet/API key/pepper vào `Config.gs` hoặc GitHub.
+
+Trong Apps Script: **Project Settings → Script properties → Add script property** và tạo 3 property trên.
+
+Sau đó chạy `validateConfiguration()`. Nếu muốn nhập bằng hộp thoại, chạy `setConfigurationFromPrompt()` một lần.
+
+Nếu đổi Script Properties, không cần sửa `Config.gs`; `CONFIG` sẽ đọc lại các giá trị khi Apps Script xử lý request mới.
+
+
+## V4 - sửa timeout/lock
+Bản v4 bỏ `ScriptLock.waitLock(120000)` khỏi endpoint `/sync`. Đây là nguyên nhân làm request thứ hai chờ khóa và trả LOCK_TIMEOUT/502 khi request trước đã timeout ở phía VBA. Đồng thời batch sync chỉ đọc/ghi đúng số cột cần thiết (12 cột Employees, 39 cột Payroll), không phụ thuộc `getLastColumn()` nếu sheet có cột thừa. Sau khi thay Sync.gs, hãy tạo deployment mới và cập nhật URL /exec nếu URL thay đổi.

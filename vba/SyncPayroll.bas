@@ -109,6 +109,7 @@ Private Sub SyncOneWorkshop(ByVal rootPath As String, ByVal filePrefix As String
         Json.JsonString("apiKey") & ":" & Json.JsonString(SYNC_API_KEY) & "," & _
         Json.JsonString("xuong") & ":" & Json.JsonString(label) & "," & _
         Json.JsonString("thang") & ":" & Json.JsonString(thangStr) & "," & _
+        Json.JsonString("clientStartedAt") & ":" & Json.JsonString(CStr(CDbl(Now))) & "," & _
         Json.JsonString("employees") & ":" & Json.CollectionToJsonArray(employees) & "," & _
         Json.JsonString("payroll") & ":" & Json.CollectionToJsonArray(payroll) & _
         "}"
@@ -296,8 +297,9 @@ Private Function PostJsonUtf8(ByVal url As String, ByVal jsonBody As String) As 
     Dim bodyBytes() As Byte: bodyBytes = Utf8BytesFromString(jsonBody)
     On Error GoTo HttpFailed
     http.Open "POST", url, False
-    http.SetTimeouts 30000, 30000, 120000, 120000
-    http.SetRequestHeader "Content-Type", "text/plain;charset=utf-8"
+    http.SetTimeouts 30000, 30000, 300000, 300000
+    http.SetRequestHeader "Content-Type", "application/json; charset=utf-8"
+    http.SetRequestHeader "Accept", "application/json"
     http.Send bodyBytes
     LogMessage "HTTP Status = " & http.Status & " " & http.StatusText
     PostJsonUtf8 = http.ResponseText

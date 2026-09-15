@@ -14,7 +14,7 @@ Bản FIXED tập trung xử lý lỗi đồng bộ khiến Google Sheet không 
 - Không phụ thuộc ActiveSheet khi tính số cột.
 - GAS kiểm tra cấu hình rõ ràng.
 - GAS tạo/kiểm tra sheet và header.
-- Sync có LockService tránh 2 tiến trình ghi đồng thời.
+- Sync có batch write / không chờ ScriptLock tránh 2 tiến trình ghi đồng thời.
 - `UpdatedAt` dùng `dd/MM/yyyy HH:mm:ss`.
 - Nhân viên chỉ truy cập payroll theo CCCD trong session, không nhận CCCD/MaNV từ frontend.
 - Reset password -> password = MaNV -> MustChangePassword = TRUE.

@@ -73,3 +73,45 @@ function checkConfiguration() {
     spreadsheetName: props.SPREADSHEET_ID ? getSS().getName() : ''
   };
 }
+
+
+/**
+ * Chạy một lần sau khi tạo project/deploy mới.
+ * KHÔNG đặt secret trực tiếp trong source/GitHub.
+ * Hãy vào Project Settings > Script properties và tạo đúng 3 tên:
+ * SPREADSHEET_ID, SYNC_API_KEY, PASSWORD_PEPPER
+ */
+function validateConfiguration() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var missing = [];
+  ['SPREADSHEET_ID','SYNC_API_KEY','PASSWORD_PEPPER'].forEach(function(k) {
+    if (!props[k] || String(props[k]).trim() === '') missing.push(k);
+  });
+  if (missing.length) {
+    throw new Error('Thiếu Script Properties: ' + missing.join(', ') + '. Vào Project Settings > Script properties và tạo đúng TÊN thuộc tính.');
+  }
+  try {
+    var ss = SpreadsheetApp.openById(String(props.SPREADSHEET_ID).trim());
+    return {ok:true, spreadsheetIdConfigured:true, spreadsheetName:ss.getName(),
+      syncApiKeyConfigured:true, passwordPepperConfigured:true};
+  } catch (e) {
+    throw new Error('SPREADSHEET_ID đã có nhưng không mở được Google Sheet. Kiểm tra ID và quyền truy cập của tài khoản chạy Apps Script. Chi tiết: ' + e.message);
+  }
+}
+
+function setConfigurationFromPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var ssId = ui.prompt('SPREADSHEET_ID', 'Nhập ID Google Sheet:', ui.ButtonSet.OK_CANCEL);
+  if (ssId.getSelectedButton() !== ui.Button.OK) return 'Đã hủy.';
+  var api = ui.prompt('SYNC_API_KEY', 'Nhập API key dùng cho VBA:', ui.ButtonSet.OK_CANCEL);
+  if (api.getSelectedButton() !== ui.Button.OK) return 'Đã hủy.';
+  var pepper = ui.prompt('PASSWORD_PEPPER', 'Nhập PASSWORD_PEPPER:', ui.ButtonSet.OK_CANCEL);
+  if (pepper.getSelectedButton() !== ui.Button.OK) return 'Đã hủy.';
+  var props = PropertiesService.getScriptProperties();
+  props.setProperties({
+    SPREADSHEET_ID: String(ssId.getResponseText()).trim(),
+    SYNC_API_KEY: String(api.getResponseText()).trim(),
+    PASSWORD_PEPPER: String(pepper.getResponseText()).trim()
+  }, true);
+  return validateConfiguration();
+}

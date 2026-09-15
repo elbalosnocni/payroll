@@ -1,82 +1,167 @@
+/**
+ * Sync.gs - VBA -> Google Sheets
+ * IMPORTANT: all writes are batched. Do NOT use appendRow/setValue in a loop.
+ */
 function actionSync(params) {
-  if (!CONFIG.SYNC_API_KEY) return errorResponse('GAS chưa cấu hình SYNC_API_KEY.', 'SYNC_NOT_CONFIGURED');
-  if (!safeCompare(String(params.apiKey || ''), CONFIG.SYNC_API_KEY)) return errorResponse('Sai API key.', 'FORBIDDEN');
+  var started = new Date().getTime();
+
+  if (!CONFIG.SYNC_API_KEY) {
+    return errorResponse('GAS chưa cấu hình SYNC_API_KEY.', 'SYNC_NOT_CONFIGURED');
+  }
+  if (!safeCompare(String(params.apiKey || ''), CONFIG.SYNC_API_KEY)) {
+    return errorResponse('Sai API key.', 'FORBIDDEN');
+  }
 
   var xuong = String(params.xuong || '').trim();
   var thang = String(params.thang || '').trim();
   var employees = Array.isArray(params.employees) ? params.employees : [];
   var payroll = Array.isArray(params.payroll) ? params.payroll : [];
+
   if (!xuong || !thang) return errorResponse('Thiếu thông tin xuong/thang.', 'MISSING_FIELDS');
   if (!/^\d{2}-\d{4}$/.test(thang)) return errorResponse('Tháng phải có dạng MM-YYYY.', 'INVALID_MONTH');
   if (!employees.length && !payroll.length) return errorResponse('Payload không có employees/payroll.', 'EMPTY_PAYLOAD');
 
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  /*
+   * KHÔNG dùng ScriptLock.waitLock() ở đây.
+   *
+   * Lý do: một request VBA có thể mất > 120 giây ở phía Google gateway.
+   * Nếu request đó còn giữ ScriptLock thì request kế tiếp (Flexible) sẽ
+   * chờ lock và tiếp tục timeout/502 dù VBA đã báo timeout.
+   *
+   * VBA hiện gửi Snack rồi mới gửi Flexible, nên việc khóa toàn project
+   * không cần thiết. Mỗi lần sync được ghi theo (Xuong, Thang) và các
+   * thao tác ghi đều dùng batch setValues().
+   */
+
   try {
-    var empResult = upsertEmployees(employees, xuong);
-    var payrollResult = upsertPayroll(payroll, xuong, thang);
-    updateSyncStatus(xuong, thang, payrollResult.count, 'OK', empResult.count + ' nhân viên, ' + payrollResult.count + ' phiếu lương');
-    writeAudit('SYSTEM_VBA', 'SYNC', xuong + ' ' + thang, empResult.count + ' employees, ' + payrollResult.count + ' payroll rows');
-    return successResponse({ message: 'Đồng bộ thành công.', employeesProcessed: empResult.count, payrollProcessed: payrollResult.count, thang: thang, xuong: xuong });
+    var empResult = upsertEmployeesBatch(employees, xuong);
+    var payrollResult = upsertPayrollBatch(payroll, xuong, thang);
+
+    updateSyncStatus(
+      xuong,
+      thang,
+      payrollResult.count,
+      'OK',
+      empResult.count + ' nhân viên, ' + payrollResult.count + ' phiếu lương'
+    );
+
+    /*
+     * Audit chỉ ghi 1 dòng sau khi hoàn tất, không append trong vòng lặp.
+     */
+    writeAudit(
+      'SYSTEM_VBA',
+      'SYNC',
+      xuong + ' ' + thang,
+      empResult.count + ' employees, ' + payrollResult.count + ' payroll rows'
+    );
+
+    return successResponse({
+      message: 'Đồng bộ thành công.',
+      employeesProcessed: empResult.count,
+      payrollProcessed: payrollResult.count,
+      thang: thang,
+      xuong: xuong,
+      durationMs: new Date().getTime() - started
+    });
+
   } catch (err) {
-    updateSyncStatus(xuong, thang, 0, 'ERROR', err.message || String(err));
-    throw err;
-  } finally { lock.releaseLock(); }
+    try {
+      updateSyncStatus(xuong, thang, 0, 'ERROR', err.message || String(err));
+    } catch (_) {}
+    return errorResponse(
+      'Lỗi đồng bộ: ' + (err.message || String(err)),
+      'SYNC_ERROR'
+    );
+  }
 }
 
-function upsertEmployees(employees, xuong) {
-  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES);
-  var headers = requireHeaders(sheet, ['CCCD','MaNV','HoTen','Xuong','PhongBan','BoPhan','ChucVu','PasswordHash','PasswordSalt','MustChangePassword','Role','UpdatedAt']);
-  if (sheet.getMaxRows() > 1) sheet.getRange(2, headers.CCCD, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
-  var rows = sheetToObjects(sheet), byMaNV = {};
-  rows.forEach(function(r) { if (String(r.MaNV).trim()) byMaNV[String(r.MaNV).trim()] = r; });
-  var now = formatDateVN(new Date()), count = 0;
+function upsertEmployeesBatch(employees, xuong) {
+  var headersList = ['CCCD','MaNV','HoTen','Xuong','PhongBan','BoPhan','ChucVu','PasswordHash','PasswordSalt','MustChangePassword','Role','UpdatedAt'];
+  var sheet = getOrCreateSheet(CONFIG.SHEET_EMPLOYEES, headersList);
+  var headers = requireHeaders(sheet, headersList);
+  var lastRow = sheet.getLastRow();
+  var lastCol = headersList.length;
+  var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
+  var byMa = {};
+  for (var i = 0; i < values.length; i++) {
+    var ma = String(values[i][headers.MaNV - 1] == null ? '' : values[i][headers.MaNV - 1]).trim();
+    if (ma && !byMa[ma]) byMa[ma] = i;
+  }
 
+  var now = formatDateVN(new Date());
+  var processed = 0;
   employees.forEach(function(e) {
     var maNV = String(e.maNV || '').trim();
     if (!maNV) return;
-    var cccd = normalizeCCCD(e.cccd);
-    var found = byMaNV[maNV];
-    if (found) {
-      sheet.getRange(found.__row, headers.CCCD).setNumberFormat('@').setValue(cccd);
-      sheet.getRange(found.__row, headers.MaNV).setValue(maNV);
-      sheet.getRange(found.__row, headers.HoTen).setValue(e.hoTen || found.HoTen || '');
-      sheet.getRange(found.__row, headers.Xuong).setValue(xuong);
-      sheet.getRange(found.__row, headers.PhongBan).setValue(e.phongBan || '');
-      sheet.getRange(found.__row, headers.BoPhan).setValue(e.boPhan || '');
-      sheet.getRange(found.__row, headers.ChucVu).setValue(e.chucVu || '');
-      sheet.getRange(found.__row, headers.UpdatedAt).setValue(now);
+    var idx = Object.prototype.hasOwnProperty.call(byMa, maNV) ? byMa[maNV] : -1;
+    var row;
+    if (idx >= 0) {
+      row = values[idx];
+      // Existing password/salt/must-change/role are intentionally preserved.
+      row[headers.CCCD - 1] = normalizeCCCD(e.cccd);
+      row[headers.MaNV - 1] = maNV;
+      row[headers.HoTen - 1] = e.hoTen || row[headers.HoTen - 1] || '';
+      row[headers.Xuong - 1] = xuong;
+      row[headers.PhongBan - 1] = e.phongBan || '';
+      row[headers.BoPhan - 1] = e.boPhan || '';
+      row[headers.ChucVu - 1] = e.chucVu || '';
+      row[headers.UpdatedAt - 1] = now;
     } else {
-      var salt = generateSalt(), hash = hashPassword(maNV, salt);
-      var row = [];
-      sheet.getRange(1, headers.CCCD, Math.max(sheet.getMaxRows(), 2), 1).setNumberFormat('@');
-      for (var i = 1; i <= sheet.getLastColumn(); i++) row.push('');
-      row[headers.CCCD - 1] = cccd; row[headers.MaNV - 1] = maNV; row[headers.HoTen - 1] = e.hoTen || '';
-      row[headers.Xuong - 1] = xuong; row[headers.PhongBan - 1] = e.phongBan || ''; row[headers.BoPhan - 1] = e.boPhan || '';
-      row[headers.ChucVu - 1] = e.chucVu || ''; row[headers.PasswordHash - 1] = hash; row[headers.PasswordSalt - 1] = salt;
-      row[headers.MustChangePassword - 1] = true; row[headers.Role - 1] = 'employee'; row[headers.UpdatedAt - 1] = now;
-      sheet.appendRow(row);
+      row = new Array(lastCol).fill('');
+      row[headers.CCCD - 1] = normalizeCCCD(e.cccd);
+      row[headers.MaNV - 1] = maNV;
+      row[headers.HoTen - 1] = e.hoTen || '';
+      row[headers.Xuong - 1] = xuong;
+      row[headers.PhongBan - 1] = e.phongBan || '';
+      row[headers.BoPhan - 1] = e.boPhan || '';
+      row[headers.ChucVu - 1] = e.chucVu || '';
+      var salt = generateSalt();
+      row[headers.PasswordSalt - 1] = salt;
+      row[headers.PasswordHash - 1] = hashPassword(maNV, salt);
+      row[headers.MustChangePassword - 1] = true;
+      row[headers.Role - 1] = 'employee';
+      row[headers.UpdatedAt - 1] = now;
+      byMa[maNV] = values.length;
+      values.push(row);
     }
-    count++;
+    processed++;
   });
-  return { count: count };
+
+  if (values.length) {
+    sheet.getRange(2, 1, values.length, lastCol).setValues(values);
+    sheet.getRange(2, headers.CCCD, values.length, 1).setNumberFormat('@');
+    sheet.getRange(2, headers.MaNV, values.length, 1).setNumberFormat('@');
+  }
+  return {count: processed};
 }
 
-function upsertPayroll(payroll, xuong, thang) {
-  var sheet = getOrCreateSheet(CONFIG.SHEET_PAYROLL);
-  var headers = requireHeaders(sheet, ['MaNV','HoTen','Xuong','Thang','UpdatedAt']);
-  var rows = sheetToObjects(sheet), byKey = {};
-  rows.forEach(function(r) { byKey[String(r.MaNV).trim() + '|' + String(r.Thang).trim()] = r; });
-  var now = formatDateVN(new Date()), count = 0;
+function upsertPayrollBatch(payroll, xuong, thang) {
+  var headersList = ['MaNV','HoTen','Xuong','Thang','LuongCoBan','SoNgayLamViec','SoNgayLe','SoNgayNghiHuongLuong','SoNgayNghiKhongLuong','SoNgayNghiHuongLuongToiThieuVung','LuongThang','SoGioNgoaiGio','SoGioNgayNghi','SoGioNgoaiGioNgayNghi','SoGioTangCaDem','SoGioLamNgayLe','SoGioNgoaiGioNgayLe','SoGioTangCaDemNgayLe','SoNgayLamCaDem','LuongNgoaiGio','TienKhac','TienKyLuat','TienGanBo2Nam','TienGanBo5Nam','TienGanBo10Nam','TienNhaO','TienDiLai','TienThuongChuyenCan','HoaHongThuongVuotDinhMuc','TroCapThoiViecPhepNam','TongKhoanThuNhap','BHXH','BHYT','BHTN','ThueThuNhap','TamUng','KhauTruKhac','LuongThucLinh','UpdatedAt'];
+  var sheet = getOrCreateSheet(CONFIG.SHEET_PAYROLL, headersList);
+  var headers = requireHeaders(sheet, headersList);
+  var lastRow = sheet.getLastRow();
+  var lastCol = headersList.length;
+  var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
+  var byKey = {};
+  for (var i = 0; i < values.length; i++) {
+    var ma = String(values[i][headers.MaNV - 1] == null ? '' : values[i][headers.MaNV - 1]).trim();
+    var th = String(values[i][headers.Thang - 1] == null ? '' : values[i][headers.Thang - 1]).trim();
+    if (ma && th && !byKey[ma + '|' + th]) byKey[ma + '|' + th] = i;
+  }
+  var now = formatDateVN(new Date());
+  var processed = 0;
   payroll.forEach(function(p) {
-    var maNV = String(p.maNV || '').trim(); if (!maNV) return;
+    var maNV = String(p.maNV || '').trim();
+    if (!maNV) return;
     var key = maNV + '|' + thang;
-    var data = buildPayrollRowData(p, xuong, thang, now, sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]);
-    if (byKey[key]) sheet.getRange(byKey[key].__row, 1, 1, data.length).setValues([data]);
-    else sheet.appendRow(data);
-    count++;
+    var data = buildPayrollRowData(p, xuong, thang, now, headersList);
+    var idx = Object.prototype.hasOwnProperty.call(byKey, key) ? byKey[key] : -1;
+    if (idx >= 0) values[idx] = data;
+    else { byKey[key] = values.length; values.push(data); }
+    processed++;
   });
-  return { count: count };
+  if (values.length) sheet.getRange(2, 1, values.length, lastCol).setValues(values);
+  return {count: processed};
 }
 
 function buildPayrollRowData(p, xuong, thang, now, headers) {
@@ -99,7 +184,13 @@ function buildPayrollRowData(p, xuong, thang, now, headers) {
 
 function updateSyncStatus(xuong, thang, soDong, trangThai, ghiChu) {
   var sheet = getOrCreateSheet(CONFIG.SHEET_SYNC_STATUS, ['Xuong','Thang','LastSyncAt','SoDongDaXuLy','TrangThai','GhiChu']);
-  var rows = sheetToObjects(sheet), found = rows.filter(function(r){return String(r.Xuong)===xuong && String(r.Thang)===thang;})[0];
-  var now = formatDateVN(new Date()), data = [xuong,thang,now,soDong,trangThai,ghiChu||''];
-  if (found) sheet.getRange(found.__row,1,1,6).setValues([data]); else sheet.appendRow(data);
+  var lastRow = sheet.getLastRow();
+  var values = lastRow >= 2 ? sheet.getRange(2,1,lastRow-1,6).getValues() : [];
+  var found = -1;
+  for (var i=0;i<values.length;i++) {
+    if (String(values[i][0]).trim()===xuong && String(values[i][1]).trim()===thang) { found=i; break; }
+  }
+  var data = [xuong,thang,formatDateVN(new Date()),soDong,trangThai,ghiChu||''];
+  if (found >= 0) sheet.getRange(found+2,1,1,6).setValues([data]);
+  else sheet.getRange(Math.max(2,lastRow+1),1,1,6).setValues([data]);
 }
