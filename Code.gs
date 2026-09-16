@@ -1732,11 +1732,18 @@ function parseRequest_(e) {
   }
 
   try {
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('JSON root must be an object');
+    }
+
+    return parsed;
   } catch (error) {
+    const message = String(error && error.message || error);
     throw new Error(
-      'Invalid JSON request. Prefix=' +
-      content.substring(0, 300)
+      'Invalid JSON request: ' + message +
+      '. Prefix=' + content.substring(0, 500)
     );
   }
 }

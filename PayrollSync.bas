@@ -158,6 +158,7 @@ Public Sub RunPayrollSync()
         snackFile, _
         flexibleFile)
 
+    LogMessage "Kich thuoc JSON: " & CStr(Len(payload)) & " ky tu."
     LogMessage "Dang gui du lieu len GAS..."
 
     success = PostWithRetry_( _
@@ -1287,7 +1288,14 @@ Private Function JsonEscape_( _
             Case 92
                 result = result & "\\"
             Case Else
-                result = result & ch
+                ' Encode non-ASCII UTF-16 code units as JSON \uXXXX.
+                ' This keeps the entire request ASCII and avoids Excel/VBA
+                ' code-page/UTF-8 conversion problems with Vietnamese text.
+                If code > 127 Then
+                    result = result & "\u" & Right$("0000" & Hex$(code), 4)
+                Else
+                    result = result & ch
+                End If
         End Select
     Next i
 
