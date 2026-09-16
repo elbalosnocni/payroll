@@ -158,6 +158,18 @@ Public Sub RunPayrollSync()
         snackFile, _
         flexibleFile)
 
+    ' Final safety pass: JSON numbers must never be written as .5 or -.5.
+    payload = RepairJsonLeadingDotNumbers_(payload)
+
+    If InStr(1, payload, ":.", vbBinaryCompare) > 0 _
+       Or InStr(1, payload, ":-.", vbBinaryCompare) > 0 _
+       Or InStr(1, payload, ",.", vbBinaryCompare) > 0 _
+       Or InStr(1, payload, ",-.", vbBinaryCompare) > 0 Then
+        Err.Raise vbObjectError + 1003, _
+                  "RunPayrollSync", _
+                  "JSON van con so thap phan bat dau bang dau cham (.5)."
+    End If
+
     LogMessage "Kich thuoc JSON: " & CStr(Len(payload)) & " ky tu."
     LogMessage "Dang gui du lieu len GAS..."
 
@@ -1246,12 +1258,52 @@ End Sub
 Private Function NumberToJson_( _
     ByVal value As Double) As String
 
-    ' IMPORTANT: Do not use Format$(value, "0.###############") here.
-    ' In some Windows/VBA locale combinations that format produces values
-    ' such as 0. for zero, which is NOT a valid JSON number.
-    ' VBA Str$ always uses a period as the decimal separator, so it is safe
-    ' for JSON. Trim$ removes the leading space returned by Str$.
-    NumberToJson_ = Trim$(Str$(value))
+    Dim result As String
+    Dim decimalSep As String
+
+    ' Use a format containing a mandatory leading zero. This prevents both
+    ' invalid JSON forms: 0. and .5. Then convert the Windows decimal
+    ' separator to the JSON-required period.
+    result = Format$(value, "0.############################")
+
+    decimalSep = Application.International(xlDecimalSeparator)
+    If decimalSep <> "." Then
+        result = Replace$(result, decimalSep, ".")
+    End If
+
+    If Left$(result, 1) = "." Then
+        result = "0" & result
+    ElseIf Left$(result, 2) = "-." Then
+        result = "-0" & Mid$(result, 2)
+    End If
+
+    NumberToJson_ = result
+
+End Function
+
+Private Function RepairJsonLeadingDotNumbers_( _
+    ByVal payload As String) As String
+
+    Dim rx As Object
+
+    On Error GoTo Fallback
+
+    Set rx = CreateObject("VBScript.RegExp")
+
+    ' Repair numeric tokens such as : .5, :.5, :-.5, ,.5 and [ .5.
+    ' The prefix must be a JSON delimiter, so quoted string values are not
+    ' modified. This is a final defensive layer before HTTP transmission.
+    rx.Pattern = "([:\[,]\s*)(-?)\.([0-9]+)"
+    rx.Global = True
+    rx.MultiLine = False
+    rx.Replacement = "$1$2" & "0.$3"
+
+    RepairJsonLeadingDotNumbers_ = rx.Replace(payload, payload)
+    Exit Function
+
+Fallback:
+    ' If VBScript.RegExp is unavailable, return the original payload.
+    RepairJsonLeadingDotNumbers_ = payload
 
 End Function
 

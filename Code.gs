@@ -1721,6 +1721,11 @@ function parseRequest_(e) {
   // Remove UTF-8 BOM and surrounding whitespace.
   content = content.replace(/^\uFEFF/, '').trim();
 
+  // Repair a legacy VBA number serialization bug such as :.5 or :-.5.
+  // JSON requires a leading zero (0.5 / -0.5). The regex only targets a
+  // numeric token immediately after a JSON delimiter, not quoted text.
+  content = content.replace(/([:\[,]\s*)(-?)\.([0-9]+)/g, function(_, prefix, sign, digits) { return prefix + sign + '0.' + digits; });
+
   // If a proxy/client added text around the JSON, keep only the JSON object.
   const first = content.indexOf('{');
   const last = content.lastIndexOf('}');
