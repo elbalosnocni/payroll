@@ -6,7 +6,10 @@ FILES
 - PayrollSync.bas: Excel VBA synchronization macro.
 
 ROOT FIX FOR THE CURRENT ERROR
-The VBA serializer now emits every non-ASCII UTF-16 character as JSON \uXXXX. This makes the POST body ASCII-only and avoids invalid-JSON errors caused by Excel/VBA code-page or UTF-8 conversion issues. The GAS parser also reports the JSON parser error position/message for diagnostics.
+The current log showed the exact invalid JSON fragment: `"basicSalary":0.`.
+`0.` is NOT valid JSON; JSON requires `0` or `0.0`. The previous VBA formatter could generate `0.` under some Windows/VBA locale combinations. `PayrollSync.bas` now uses `Trim$(Str$(value))`, which emits valid JSON numbers such as `0`, `1234`, `1234.5`, and `-12.5`.
+
+The VBA serializer also emits every non-ASCII UTF-16 character as JSON \uXXXX, keeping the POST body ASCII-safe. The GAS parser reports the JSON parser error position/message for diagnostics.
 
 ADDITIONAL FIXES
 - Removed an extra closing brace from the CSS in index.html.

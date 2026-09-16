@@ -1246,11 +1246,12 @@ End Sub
 Private Function NumberToJson_( _
     ByVal value As Double) As String
 
-    NumberToJson_ = _
-        Replace( _
-            Format$(value, "0.###############"), _
-            ",", _
-            ".")
+    ' IMPORTANT: Do not use Format$(value, "0.###############") here.
+    ' In some Windows/VBA locale combinations that format produces values
+    ' such as 0. for zero, which is NOT a valid JSON number.
+    ' VBA Str$ always uses a period as the decimal separator, so it is safe
+    ' for JSON. Trim$ removes the leading space returned by Str$.
+    NumberToJson_ = Trim$(Str$(value))
 
 End Function
 
