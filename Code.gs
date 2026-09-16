@@ -1630,33 +1630,54 @@ function normalizeCitizenID_(value) {
 }
 
 function numberValue_(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ''
-  ) {
+  if (value === null || value === undefined || value === '') {
     return 0;
   }
 
   if (typeof value === 'number') {
-    return value;
+    return isFinite(value) ? value : 0;
   }
 
-  const text =
-    String(value)
-      .replace(/,/g, '')
-      .trim();
+  let text = String(value)
+    .replace(/\u00A0/g, ' ')
+    .trim();
 
-  if (!text) {
-    return 0;
+  if (!text) return 0;
+
+  // Defensive handling for values produced by older VBA versions.
+  // Accept .5 / -.5 as well as comma-decimal forms.
+  if (/^-?\.[0-9]+$/.test(text)) {
+    text = text.replace(/^(-?)\./, '$10.');
   }
 
-  const number =
-    Number(text);
+  // If both separators exist, the last one is treated as the decimal
+  // separator and the other one as a thousands separator.
+  const comma = text.lastIndexOf(',');
+  const dot = text.lastIndexOf('.');
 
-  return isNaN(number)
-    ? 0
-    : number;
+  if (comma >= 0 && dot >= 0) {
+    if (comma > dot) {
+      text = text.replace(/\./g, '').replace(',', '.');
+    } else {
+      text = text.replace(/,/g, '');
+    }
+  } else if (comma >= 0) {
+    // A single comma followed by 1-4 digits is normally a decimal value
+    // in Vietnamese Excel exports; otherwise treat commas as grouping.
+    const tail = text.substring(comma + 1);
+    if (/^[0-9]{1,4}$/.test(tail)) {
+      text = text.replace(',', '.');
+    } else {
+      text = text.replace(/,/g, '');
+    }
+  }
+
+  if (/^-?\d+\.$/.test(text)) {
+    text = text.slice(0, -1);
+  }
+
+  const number = Number(text);
+  return isFinite(number) ? number : 0;
 }
 
 function writeAudit_(

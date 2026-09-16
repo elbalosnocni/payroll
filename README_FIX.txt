@@ -1,37 +1,20 @@
-PAYROLL SYNC - FULL FIX
+PAYROLL SYNC - FINAL FIX 2026-09-16
 
-FILES
-- Code.gs: Google Apps Script backend/API.
-- index.html: GitHub Pages frontend.
-- PayrollSync.bas: Excel VBA synchronization macro.
+Root cause confirmed from API logs:
+- VBA was manually constructing JSON numbers using locale-sensitive formatting.
+- Invalid tokens such as 0. and .5 reached JSON.parse().
 
-ROOT FIX FOR THE CURRENT ERROR
-The current log showed the exact invalid JSON fragment: `"basicSalary":0.`.
-`0.` is NOT valid JSON; JSON requires `0` or `0.0`. The previous VBA formatter could generate `0.` under some Windows/VBA locale combinations. `PayrollSync.bas` now uses `Trim$(Str$(value))`, which emits valid JSON numbers such as `0`, `1234`, `1234.5`, and `-12.5`.
+FINAL FIX:
+1. PayrollSync.bas sends all payroll numeric fields as JSON strings (e.g. "0.5").
+2. Code.gs converts those strings to real Numbers with numberValue_ before writing to Google Sheets.
+3. Code.gs defensively accepts legacy .5 / -.5 / comma-decimal values too.
+4. The broken VBA regex replacement pass has been removed.
 
-The VBA serializer also emits every non-ASCII UTF-16 character as JSON \uXXXX, keeping the POST body ASCII-safe. The GAS parser reports the JSON parser error position/message for diagnostics.
+DEPLOY:
+- Replace Code.gs in Apps Script.
+- Save.
+- Deploy > Manage deployments > Edit > New version > Deploy.
+- Replace/import PayrollSync.bas in the Excel workbook.
+- Run RunPayrollSync.
 
-ADDITIONAL FIXES
-- Removed an extra closing brace from the CSS in index.html.
-- Frontend API reader now reads response text first and gives a useful error if GAS returns non-JSON.
-- VBA logs the JSON payload size before POST.
-- Existing API key, spreadsheet ID, sheet names, password flow, admin flow and payroll field mapping are preserved.
-
-DEPLOYMENT
-1. In the Apps Script project, replace Code.gs with the Code.gs in this package.
-2. Save.
-3. Deploy -> Manage deployments -> Edit the Web app deployment -> New version -> Deploy.
-4. Execute as: Me.
-5. Who has access: Anyone.
-6. Keep using the same /exec URL in both PayrollSync.bas and index.html.
-7. If the deployment URL changes, update API_URL in index.html and API_URL in PayrollSync.bas to the new /exec URL.
-8. Run setup once if the system has not been initialized.
-
-VBA
-1. Open the Excel workbook that contains the macro.
-2. Replace/import PayrollSync.bas.
-3. Run RunPayrollSync.
-4. Check PayrollSync.log next to the workbook if an error occurs. The log now includes JSON size and the full API response prefix.
-
-IMPORTANT
-After changing Code.gs, Apps Script must be redeployed as a NEW VERSION. Editing/saving Code.gs alone does not change an existing deployed Web App version.
+The source Excel paths, column mapping, API URL, API key, sheet names and existing application files are retained.

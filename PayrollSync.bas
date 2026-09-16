@@ -158,18 +158,6 @@ Public Sub RunPayrollSync()
         snackFile, _
         flexibleFile)
 
-    ' Final safety pass: JSON numbers must never be written as .5 or -.5.
-    payload = RepairJsonLeadingDotNumbers_(payload)
-
-    If InStr(1, payload, ":.", vbBinaryCompare) > 0 _
-       Or InStr(1, payload, ":-.", vbBinaryCompare) > 0 _
-       Or InStr(1, payload, ",.", vbBinaryCompare) > 0 _
-       Or InStr(1, payload, ",-.", vbBinaryCompare) > 0 Then
-        Err.Raise vbObjectError + 1003, _
-                  "RunPayrollSync", _
-                  "JSON van con so thap phan bat dau bang dau cham (.5)."
-    End If
-
     LogMessage "Kich thuoc JSON: " & CStr(Len(payload)) & " ky tu."
     LogMessage "Dang gui du lieu len GAS..."
 
@@ -1245,9 +1233,14 @@ Private Sub AddJsonNumber_( _
     ByVal value As Double, _
     ByVal addComma As Boolean)
 
+    ' IMPORTANT: payroll numeric values are sent as JSON strings.
+    ' This completely avoids locale-dependent VBA number serialization
+    ' such as 0., .5, or 1,5 which are invalid JSON in some cases.
+    ' Code.gs converts these strings back to real numbers before writing
+    ' them into Google Sheets.
     json = json & _
-        """" & key & """:" & _
-        NumberToJson_(value)
+        """ & key & "":"" & _
+        JsonNumberString_(value) & """
 
     If addComma Then
         json = json & ","
@@ -1255,20 +1248,26 @@ Private Sub AddJsonNumber_( _
 
 End Sub
 
-Private Function NumberToJson_( _
+Private Function JsonNumberString_( _
     ByVal value As Double) As String
 
     Dim result As String
-    Dim decimalSep As String
 
-    ' Use a format containing a mandatory leading zero. This prevents both
-    ' invalid JSON forms: 0. and .5. Then convert the Windows decimal
-    ' separator to the JSON-required period.
-    result = Format$(value, "0.############################")
+    If IsNumeric(value) Then
+        result = Format$(value, "0.############################")
+    Else
+        result = "0"
+    End If
 
-    decimalSep = Application.International(xlDecimalSeparator)
-    If decimalSep <> "." Then
-        result = Replace$(result, decimalSep, ".")
+    ' Force JSON-independent decimal point. Format$ above always supplies
+    ' the leading zero because the integer part is mandatory in the format.
+    If Application.International(xlDecimalSeparator) <> "." Then
+        result = Replace$(result, _
+            Application.International(xlDecimalSeparator), ".")
+    End If
+
+    If Len(result) = 0 Or result = "-" Or result = "." Or result = "-." Then
+        result = "0"
     End If
 
     If Left$(result, 1) = "." Then
@@ -1277,33 +1276,7 @@ Private Function NumberToJson_( _
         result = "-0" & Mid$(result, 2)
     End If
 
-    NumberToJson_ = result
-
-End Function
-
-Private Function RepairJsonLeadingDotNumbers_( _
-    ByVal payload As String) As String
-
-    Dim rx As Object
-
-    On Error GoTo Fallback
-
-    Set rx = CreateObject("VBScript.RegExp")
-
-    ' Repair numeric tokens such as : .5, :.5, :-.5, ,.5 and [ .5.
-    ' The prefix must be a JSON delimiter, so quoted string values are not
-    ' modified. This is a final defensive layer before HTTP transmission.
-    rx.Pattern = "([:\[,]\s*)(-?)\.([0-9]+)"
-    rx.Global = True
-    rx.MultiLine = False
-    rx.Replacement = "$1$2" & "0.$3"
-
-    RepairJsonLeadingDotNumbers_ = rx.Replace(payload, payload)
-    Exit Function
-
-Fallback:
-    ' If VBScript.RegExp is unavailable, return the original payload.
-    RepairJsonLeadingDotNumbers_ = payload
+    JsonNumberString_ = result
 
 End Function
 
