@@ -4,7 +4,7 @@ Private Const API_URL As String = _
     "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
 
 Private Const SYNC_API_KEY As String = _
-    "THAY_MOT_CHUOI_BAO_MAT_DAI_TAI_DAY"
+    "TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni"
 
 Private Const FILE_PASSWORD As String = "1234"
 
@@ -399,8 +399,7 @@ Private Function ReadPayrollWorkbook_( _
 
         End If
 
-        Set record = CreateObject(
-            "Scripting.Dictionary")
+        Set record = CreateObject("Scripting.Dictionary")
 
         record.Add _
             "employeeCode", _
@@ -735,8 +734,7 @@ Private Function BuildDSCNVMap_( _
             key = _
                 NormalizeName_(employeeName)
 
-            Set item = _
-                CreateObject("Scripting.Dictionary")
+            Set item = CreateObject("Scripting.Dictionary")
 
             item.Add _
                 "CitizenID", _
@@ -1358,7 +1356,7 @@ Private Function HttpPostJson_( _
 
     http.SetRequestHeader _
         "Content-Type", _
-        "text/plain; charset=utf-8"
+        "application/json; charset=utf-8"
 
     http.Send payload
 
