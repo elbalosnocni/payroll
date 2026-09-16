@@ -1,4 +1,4 @@
-Attribute VB_Name = "SyncPayroll"
+'Attribute VB_Name = "SyncPayroll"
 '-------------------------------------------------------------------------
 ' SyncPayroll.bas - PHIEN BAN ON DINH / NHANH
 '
@@ -507,47 +507,6 @@ Private Function IsTimeoutResponse(ByVal responseText As String) As Boolean
         (InStr(1, s, "timed out", vbTextCompare) > 0) Or _
         (InStr(1, s, "timeout", vbTextCompare) > 0) Or _
         (InStr(1, s, "time out", vbTextCompare) > 0)
-End Function
-
-Private Function PostJsonUtf8WithRetry(ByVal url As String, ByVal jsonBody As String, _
-                                       ByVal label As String) As String
-    Dim attempt As Long
-    Dim responseText As String
-    Dim code As String
-
-    For attempt = 1 To HTTP_MAX_ATTEMPTS
-        responseText = PostJsonUtf8(url, jsonBody)
-
-        If Left$(responseText, Len("LOI GUI HTTP:")) = "LOI GUI HTTP:" Then
-            code = "HTTP"
-        Else
-            code = ResponseCode(responseText)
-            If code = "" Then code = "UNKNOWN"
-        End If
-
-        ' Thanh cong thuc su: GAS tra ok=true.
-        If ResponseIsOk(responseText) Then
-            PostJsonUtf8WithRetry = responseText
-            Exit Function
-        End If
-
-        ' Chi retry loi tam thoi.
-        If Not IsRetryableResponse(responseText, code) Then
-            Err.Raise vbObjectError + 2201, "PostJsonUtf8WithRetry", _
-                      "[" & label & "] GAS tu choi request: " & responseText
-        End If
-
-        If attempt < HTTP_MAX_ATTEMPTS Then
-            LogMessage "[" & label & "] Lan thu " & attempt & "/" & HTTP_MAX_ATTEMPTS & _
-                       " that bai (" & responseText & "). Cho " & HTTP_RETRY_WAIT_SEC & _
-                       "s roi thu lai..."
-            SleepSeconds HTTP_RETRY_WAIT_SEC
-        End If
-    Next attempt
-
-    Err.Raise vbObjectError + 2202, "PostJsonUtf8WithRetry", _
-              "[" & label & "] Khong dong bo duoc sau " & HTTP_MAX_ATTEMPTS & _
-              " lan: " & responseText
 End Function
 
 Private Function PostJsonUtf8(ByVal url As String, ByVal jsonBody As String) As String
