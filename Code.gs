@@ -1712,18 +1712,31 @@ function parseRequest_(e) {
     return {};
   }
 
-  const content =
-    e.postData.contents || '';
+  let content = String(e.postData.contents || '');
 
   if (!content) {
     return {};
+  }
+
+  // Remove UTF-8 BOM and surrounding whitespace.
+  content = content.replace(/^\uFEFF/, '').trim();
+
+  // If a proxy/client added text around the JSON, keep only the JSON object.
+  const first = content.indexOf('{');
+  const last = content.lastIndexOf('}');
+
+  if (first > 0 || last >= 0) {
+    if (first >= 0 && last > first) {
+      content = content.substring(first, last + 1);
+    }
   }
 
   try {
     return JSON.parse(content);
   } catch (error) {
     throw new Error(
-      'Invalid JSON request'
+      'Invalid JSON request. Prefix=' +
+      content.substring(0, 300)
     );
   }
 }

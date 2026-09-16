@@ -1256,29 +1256,42 @@ End Function
 Private Function JsonEscape_( _
     ByVal value As String) As String
 
-    Dim textValue As String
+    Dim i As Long
+    Dim ch As String
+    Dim code As Long
+    Dim result As String
 
-    textValue = value
+    result = ""
 
-    textValue = _
-        Replace(textValue, "\", "\\")
+    For i = 1 To Len(value)
+        ch = Mid$(value, i, 1)
+        code = AscW(ch)
 
-    textValue = _
-        Replace(textValue, """", "\""")
+        If code < 0 Then code = code + 65536
 
-    textValue = _
-        Replace(textValue, vbCrLf, "\n")
+        Select Case code
+            Case 8
+                result = result & "\b"
+            Case 9
+                result = result & "\t"
+            Case 10
+                result = result & "\n"
+            Case 12
+                result = result & "\f"
+            Case 13
+                result = result & "\r"
+            Case 0 To 7, 11, 14 To 31
+                result = result & "\u" & Right$("0000" & Hex$(code), 4)
+            Case 34
+                result = result & "\"""
+            Case 92
+                result = result & "\\"
+            Case Else
+                result = result & ch
+        End Select
+    Next i
 
-    textValue = _
-        Replace(textValue, vbCr, "\n")
-
-    textValue = _
-        Replace(textValue, vbLf, "\n")
-
-    textValue = _
-        Replace(textValue, vbTab, "\t")
-
-    JsonEscape_ = textValue
+    JsonEscape_ = result
 
 End Function
 
@@ -1336,12 +1349,15 @@ Private Function HttpPostJson_( _
     ByVal payload As String) As String
 
     Dim http As Object
+    Dim bodyBytes As Variant
+
+    On Error GoTo ErrorHandler
 
     Set http = _
         CreateObject( _
             "WinHttp.WinHttpRequest.5.1")
 
-    On Error GoTo ErrorHandler
+    bodyBytes = Utf8Bytes_(payload)
 
     http.Open _
         "POST", _
@@ -1358,7 +1374,7 @@ Private Function HttpPostJson_( _
         "Content-Type", _
         "application/json; charset=utf-8"
 
-    http.Send payload
+    http.Send bodyBytes
 
     HttpPostJson_ = _
         CStr(http.ResponseText)
@@ -1371,6 +1387,43 @@ ErrorHandler:
         "{""success"":false,""error"":""" & _
         JsonEscape_(Err.Description) & _
         """}"
+
+End Function
+
+Private Function Utf8Bytes_( _
+    ByVal textValue As String) As Variant
+
+    Dim stream As Object
+    Dim bytes As Variant
+    Dim length As Long
+
+    Set stream = CreateObject("ADODB.Stream")
+
+    stream.Type = 2
+    stream.Charset = "utf-8"
+    stream.Open
+    stream.WriteText textValue
+    stream.Position = 0
+    stream.Type = 1
+
+    bytes = stream.Read
+    length = UBound(bytes) - LBound(bytes) + 1
+
+    ' ADODB.Stream writes UTF-8 BOM (EF BB BF).
+    If length >= 3 Then
+        If bytes(0) = &HEF And _
+           bytes(1) = &HBB And _
+           bytes(2) = &HBF Then
+
+            stream.Position = 3
+            bytes = stream.Read
+        End If
+    End If
+
+    stream.Close
+    Set stream = Nothing
+
+    Utf8Bytes_ = bytes
 
 End Function
 
