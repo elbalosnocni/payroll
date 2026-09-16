@@ -303,35 +303,70 @@ End Sub
 
 Private Function ExcludeTotalRow(ByVal ws As Worksheet, ByVal startRow As Long, _
                                  ByVal rawLastRow As Long) As Long
+'Lay dong Total cuoi cung
+    Dim lastTotalRow As Long
+    lastTotalRow = 0
+
     Dim scanTo As Long
-    scanTo = rawLastRow + 5
+    scanTo = rawLastRow + 10
 
     Dim r As Long
+    Dim colCText As String
+
     For r = startRow To scanTo
-        Dim colCText As String
-        colCText = UCase(Trim(SafeText(GetCellText(ws, r, COL_SALARY_TOTAL_MARKER))))
+
+        colCText = UCase$(Trim$(SafeText( _
+            GetCellText(ws, r, COL_SALARY_TOTAL_MARKER))))
 
         If InStr(1, colCText, TOTAL_ROW_KEYWORD, vbTextCompare) > 0 Then
-            LogMessage "  [Salary] Dong TOTAL tai dong " & r & "; chi doc tu dong " & _
-                       startRow & " den " & (r - 1) & "."
 
-            If Not IsYellowFill(ws.Cells(r, ColLetterToNumber(COL_SALARY_TOTAL_MARKER))) Then
-                LogMessage "  [Canh bao][Salary] Dong TOTAL (dong " & r & _
-                           ") khong co mau vang nhu ky vong - van loai bo theo chu TOTAL."
+            ' Ghi nh?n TOTAL cu?i cùng tìm th?y
+            lastTotalRow = r
+
+            LogMessage "  [Salary] Phat hien dong TOTAL tai dong " & r
+
+            If Not IsYellowFill(ws.Cells(r, _
+                ColLetterToNumber(COL_SALARY_TOTAL_MARKER))) Then
+
+                LogMessage "  [Canh bao][Salary] Dong TOTAL tai dong " & r & _
+                           " khong co mau vang - van ghi nhan."
             End If
 
-            ExcludeTotalRow = r - 1
-            Exit Function
+        ElseIf r > rawLastRow Then
+
+            ' Sau rawLastRow, n?u g?p dòng tr?ng hoàn toàn
+            ' thì d?ng quét d? tránh quét quá xa.
+            Dim manvText As String
+
+            manvText = SafeText(GetCellText( _
+                ws, r, COL_SALARY_MANV))
+
+            If manvText = "" And colCText = "" Then
+                Exit For
+            End If
+
         End If
 
-        If r > rawLastRow Then
-            Dim manvText As String
-            manvText = SafeText(GetCellText(ws, r, COL_SALARY_MANV))
-            If manvText = "" And colCText = "" Then Exit For
-        End If
     Next r
 
-    ExcludeTotalRow = rawLastRow
+    If lastTotalRow > 0 Then
+
+        LogMessage "  [Salary] TOTAL cuoi cung tai dong " & _
+                   lastTotalRow & _
+                   "; chi doc du lieu tu dong " & _
+                   startRow & " den " & (lastTotalRow - 1) & "."
+
+        ExcludeTotalRow = lastTotalRow - 1
+
+    Else
+
+        LogMessage "  [Salary] Khong tim thay dong TOTAL; " & _
+                   "giu rawLastRow = " & rawLastRow
+
+        ExcludeTotalRow = rawLastRow
+
+    End If
+
 End Function
 
 Private Function IsYellowFill(ByVal c As Range) As Boolean
