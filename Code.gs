@@ -851,7 +851,7 @@ function adminSyncStatus_(body) {
     status: {
       timestamp: row[0],
       status: row[1],
-      month: row[2],
+      month: normalizeSalaryMonth_(row[2]),
       snackFile: row[3],
       flexibleFile: row[4],
       employeeCount: row[5],
@@ -1362,11 +1362,58 @@ function getLatestPayrollForEmployee_(
   return found;
 }
 
+function normalizeSalaryMonth_(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  // Google Sheets may return a cell formatted as a date as a JavaScript Date.
+  // Example: 2026-07-31T17:00:00.000Z is 2026-08-01 00:00 in Vietnam.
+  // For payroll, always display/store the business month as MM-YYYY.
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) return '';
+    return Utilities.formatDate(
+      value,
+      Session.getScriptTimeZone() || 'Asia/Ho_Chi_Minh',
+      'MM-yyyy'
+    );
+  }
+
+  const text = String(value).trim();
+
+  // Already correct.
+  if (/^\d{2}-\d{4}$/.test(text)) {
+    return text;
+  }
+
+  // ISO date/time returned by an API or sheet value.
+  const iso = new Date(text);
+  if (!isNaN(iso.getTime()) && /T|Z|\d{4}-\d{2}-\d{2}/.test(text)) {
+    return Utilities.formatDate(
+      iso,
+      Session.getScriptTimeZone() || 'Asia/Ho_Chi_Minh',
+      'MM-yyyy'
+    );
+  }
+
+  // Accept common textual forms such as 8-2026 / 08/2026.
+  let m = text.match(/^(\d{1,2})[-\/]\s*(\d{4})$/);
+  if (m) {
+    return ('0' + m[1]).slice(-2) + '-' + m[2];
+  }
+
+  return text;
+}
+
 function payrollRowToObject_(row) {
   const result = {};
 
   PAYROLL_HEADERS.forEach(function(header, index) {
-    result[header] = row[index];
+    if (header === 'SalaryMonth') {
+      result[header] = normalizeSalaryMonth_(row[index]);
+    } else {
+      result[header] = row[index];
+    }
   });
 
   return result;
