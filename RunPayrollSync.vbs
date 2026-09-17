@@ -4,7 +4,7 @@ Dim excelApp
 Dim workbook
 Dim workbookPath
 
-workbookPath = "C:\PayrollSync\PayrollSync.xlsm"
+workbookPath = "D:\vtc\github\PayrollSync.xlsm"
 
 On Error Resume Next
 
