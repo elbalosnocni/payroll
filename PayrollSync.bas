@@ -142,7 +142,7 @@ Public Sub RunPayrollSync()
 
     End If
 
-    If allRecords.count = 0 Then
+    If allRecords.Count = 0 Then
         Err.Raise _
             vbObjectError + 1001, _
             "RunPayrollSync", _
@@ -150,7 +150,7 @@ Public Sub RunPayrollSync()
     End If
 
     LogMessage "Tong so dong du lieu: " & _
-               CStr(allRecords.count)
+               CStr(allRecords.Count)
 
     payload = BuildSyncPayload_( _
         allRecords, _
@@ -290,8 +290,8 @@ Private Function ReadPayrollWorkbook_( _
         filePath
 
     Set wb = Workbooks.Open( _
-        fileName:=filePath, _
-        password:=FILE_PASSWORD, _
+        Filename:=filePath, _
+        Password:=FILE_PASSWORD, _
         ReadOnly:=True, _
         UpdateLinks:=False, _
         AddToMru:=False)
@@ -676,7 +676,7 @@ ContinueSalaryRow:
     LogMessage _
         "[" & factoryName & _
         "] Doc duoc " & _
-        CStr(result.count) & _
+        CStr(result.Count) & _
         " dong."
 
     Set ReadPayrollWorkbook_ = result
@@ -842,7 +842,7 @@ Private Function ReadCitizenID_( _
             Else
 
                 textValue = _
-                    CStr(cell.text)
+                    CStr(cell.Text)
 
             End If
 
@@ -879,7 +879,7 @@ Private Function ReadCitizenID_( _
 Fallback:
 
     ReadCitizenID_ = _
-        Trim$(CStr(cell.text))
+        Trim$(CStr(cell.Text))
 
 End Function
 
@@ -950,8 +950,8 @@ Private Function LastUsedRow_( _
 
     LastUsedRow_ = _
         ws.Cells( _
-            ws.Rows.count, _
-            columnNumber).End(xlUp).row
+            ws.Rows.Count, _
+            columnNumber).End(xlUp).Row
 
 End Function
 
@@ -1019,7 +1019,7 @@ Private Function BuildSyncPayload_( _
     json = json & _
         """records"":["
 
-    For i = 1 To records.count
+    For i = 1 To records.Count
 
         If i > 1 Then
             json = json & ","
@@ -1239,8 +1239,8 @@ Private Sub AddJsonNumber_( _
     ' Code.gs converts these strings back to real numbers before writing
     ' them into Google Sheets.
     json = json & _
-    """" & key & """:""" & _
-    JsonNumberString_(value) & """"
+        """" & key & """:""" & _
+        JsonNumberString_(value) & """"
 
     If addComma Then
         json = json & ","
@@ -1411,7 +1411,7 @@ Private Function HttpPostJson_( _
     http.Send bodyBytes
 
     HttpPostJson_ = _
-        CStr(http.responseText)
+        CStr(http.ResponseText)
 
     Exit Function
 
@@ -1437,7 +1437,7 @@ Private Function Utf8Bytes_( _
     stream.Charset = "utf-8"
     stream.Open
     stream.WriteText textValue
-    stream.position = 0
+    stream.Position = 0
     stream.Type = 1
 
     bytes = stream.Read
@@ -1449,7 +1449,7 @@ Private Function Utf8Bytes_( _
            bytes(1) = &HBB And _
            bytes(2) = &HBF Then
 
-            stream.position = 3
+            stream.Position = 3
             bytes = stream.Read
         End If
     End If
@@ -1507,7 +1507,7 @@ Private Sub LogMessage( _
     Dim fileNumber As Integer
 
     logFile = _
-        ThisWorkbook.path & _
+        ThisWorkbook.Path & _
         "\PayrollSync.log"
 
     fileNumber = _
@@ -1525,4 +1525,3 @@ Private Sub LogMessage( _
     Close #fileNumber
 
 End Sub
-

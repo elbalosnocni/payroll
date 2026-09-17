@@ -628,6 +628,12 @@ th {
             Thông tin lương
         </h2>
 
+        <div class="payroll-item mb-4" style="max-width:360px;">
+            <div class="payroll-label">Xem phiếu lương theo tháng</div>
+            <select id="payrollMonthSelect" class="input mt-1" onchange="selectPayrollMonth(this.value)">
+            </select>
+        </div>
+
         <div
             id="payrollGrid"
             class="payroll-grid">
@@ -1158,8 +1164,10 @@ async function handleEmployeeLogin(event) {
         state.employee =
             result.employee;
 
+        state.payrollHistory =
+            result.payrolls || (result.payroll ? [result.payroll] : []);
         state.payroll =
-            result.payroll || null;
+            state.payrollHistory[0] || result.payroll || null;
 
         if (result.mustChangePassword) {
             showChangePassword();
@@ -1304,8 +1312,10 @@ async function loadEmployeePayroll() {
             return;
         }
 
+        state.payrollHistory =
+            result.payrolls || (result.payroll ? [result.payroll] : []);
         state.payroll =
-            result.payroll;
+            state.payrollHistory[0] || result.payroll || null;
 
         showEmployee();
 
@@ -1916,6 +1926,34 @@ async function showAuditPanel() {
     await loadAuditLogs();
 }
 
+function populatePayrollMonthSelect_() {
+    const select = document.getElementById('payrollMonthSelect');
+    if (!select) return;
+
+    const history = state.payrollHistory || [];
+    select.innerHTML = history.length
+        ? history.map(function(item) {
+            const month = String(item.SalaryMonth || '');
+            return '<option value="' + escapeHtml(month) + '">' + escapeHtml(month) + '</option>';
+          }).join('')
+        : '<option value="">Chưa có dữ liệu lương</option>';
+
+    if (state.payroll && state.payroll.SalaryMonth) {
+        select.value = String(state.payroll.SalaryMonth);
+    }
+}
+
+function selectPayrollMonth(month) {
+    const history = state.payrollHistory || [];
+    const found = history.find(function(item) {
+        return String(item.SalaryMonth || '') === String(month || '');
+    });
+    if (found) {
+        state.payroll = found;
+        renderEmployee();
+    }
+}
+
 function renderEmployee() {
     if (!state.employee) {
         return;
@@ -1970,6 +2008,8 @@ function renderEmployee() {
 
     const payroll =
         state.payroll;
+
+    populatePayrollMonthSelect_();
 
     const fields = [
         ['SalaryMonth', 'Tháng lương', 'text'],

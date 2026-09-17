@@ -388,9 +388,11 @@ function login_(body) {
   };
 
   if (!employee.mustChangePassword) {
-    response.payroll = getLatestPayrollForEmployee_(
+    const payrolls = getPayrollHistoryForEmployee_(
       employee.employeeCode
     );
+    response.payrolls = payrolls;
+    response.payroll = payrolls.length ? payrolls[0] : null;
   }
 
   return response;
@@ -530,13 +532,14 @@ function getPayroll_(body) {
     };
   }
 
-  const payroll = getLatestPayrollForEmployee_(
+  const payrolls = getPayrollHistoryForEmployee_(
     employee.employeeCode
   );
 
   return {
     success: true,
-    payroll: payroll
+    payrolls: payrolls,
+    payroll: payrolls.length ? payrolls[0] : null
   };
 }
 
@@ -874,9 +877,7 @@ function syncPayroll_(body) {
 
   ensureSystem_();
 
-  const month = String(
-    body.salaryMonth || ''
-  ).trim();
+  const month = normalizeSalaryMonth_(body.salaryMonth);
 
   const records = Array.isArray(body.records)
     ? body.records
@@ -914,9 +915,19 @@ function syncPayroll_(body) {
 
     const payrollRows = [];
 
+    // Enforce one payslip per EmployeeCode + SalaryMonth.
+    // If the same employee appears more than once in the incoming files,
+    // the last record is used instead of creating duplicate payslips.
+    const uniqueRecords = {};
+    records.forEach(function(record) {
+      const code = String(record.employeeCode || '').trim();
+      if (code) uniqueRecords[code.toUpperCase()] = record;
+    });
+
     let employeeCount = 0;
 
-    records.forEach(function(record) {
+    Object.keys(uniqueRecords).forEach(function(codeKey) {
+      const record = uniqueRecords[codeKey];
       const employeeCode =
         String(record.employeeCode || '').trim();
 
@@ -956,23 +967,23 @@ function syncPayroll_(body) {
       );
     });
 
-    deletePayrollMonth_(month);
+    const replacedCount = deletePayrollMonth_(month);
 
     if (payrollRows.length > 0) {
+      const startRow = payrollSheet.getLastRow() + 1;
+      // Keep SalaryMonth as text so Google Sheets cannot turn 08-2026 into a Date.
+      payrollSheet.getRange(2, 7, Math.max(1, payrollSheet.getMaxRows() - 1), 1).setNumberFormat('@');
       payrollSheet
-        .getRange(
-          payrollSheet.getLastRow() + 1,
-          1,
-          payrollRows.length,
-          PAYROLL_HEADERS.length
-        )
+        .getRange(startRow, 1, payrollRows.length, PAYROLL_HEADERS.length)
         .setValues(payrollRows);
     }
 
     const statusSheet =
       getSheet_(CONFIG.SHEETS.SYNC);
 
-    statusSheet.appendRow([
+    const statusRow = statusSheet.getLastRow() + 1;
+    statusSheet.getRange(statusRow, 3).setNumberFormat('@');
+    statusSheet.getRange(statusRow, 1, 1, SYNC_HEADERS.length).setValues([[
       nowString_(),
       'SUCCESS',
       month,
@@ -981,7 +992,7 @@ function syncPayroll_(body) {
       employeeCount,
       payrollRows.length,
       'Payroll synchronized successfully'
-    ]);
+    ]]);
 
     writeAudit_(
       'VBA_SYNC',
@@ -996,13 +1007,16 @@ function syncPayroll_(body) {
       success: true,
       month: month,
       employeeCount: employeeCount,
-      payrollCount: payrollRows.length
+      payrollCount: payrollRows.length,
+      replacedCount: replacedCount
     };
   } catch (error) {
     const statusSheet =
       getSheet_(CONFIG.SHEETS.SYNC);
 
-    statusSheet.appendRow([
+    const errorRow = statusSheet.getLastRow() + 1;
+    statusSheet.getRange(errorRow, 3).setNumberFormat('@');
+    statusSheet.getRange(errorRow, 1, 1, SYNC_HEADERS.length).setValues([[
       nowString_(),
       'ERROR',
       month,
@@ -1011,7 +1025,7 @@ function syncPayroll_(body) {
       0,
       0,
       String(error.message || error)
-    ]);
+    ]]);
 
     throw error;
   } finally {
@@ -1083,28 +1097,20 @@ function payrollRecordToRow_(
 
 function deletePayrollMonth_(month) {
   const sheet = getSheet_(CONFIG.SHEETS.PAYROLL);
-
+  const targetMonth = normalizeSalaryMonth_(month);
   const lastRow = sheet.getLastRow();
 
-  if (lastRow <= 1) {
-    return;
+  if (lastRow <= 1 || !targetMonth) {
+    return 0;
   }
 
-  const values = sheet
-    .getRange(
-      2,
-      1,
-      lastRow - 1,
-      PAYROLL_HEADERS.length
-    )
-    .getValues();
-
+  const values = sheet.getRange(2, 1, lastRow - 1, PAYROLL_HEADERS.length).getValues();
   const rowsToDelete = [];
 
   for (let i = 0; i < values.length; i++) {
-    if (
-      String(values[i][6]).trim() === month
-    ) {
+    // IMPORTANT: compare normalized month, not String(Date).
+    // Old rows may already contain a Google Sheets Date object.
+    if (normalizeSalaryMonth_(values[i][6]) === targetMonth) {
       rowsToDelete.push(i + 2);
     }
   }
@@ -1112,6 +1118,8 @@ function deletePayrollMonth_(month) {
   for (let i = rowsToDelete.length - 1; i >= 0; i--) {
     sheet.deleteRow(rowsToDelete[i]);
   }
+
+  return rowsToDelete.length;
 }
 
 function upsertEmployee_(
@@ -1325,41 +1333,50 @@ function readEmployees_() {
   });
 }
 
-function getLatestPayrollForEmployee_(
-  employeeCode
-) {
-  const sheet =
-    getSheet_(CONFIG.SHEETS.PAYROLL);
-
+function getPayrollHistoryForEmployee_(employeeCode) {
+  const sheet = getSheet_(CONFIG.SHEETS.PAYROLL);
   const lastRow = sheet.getLastRow();
 
   if (lastRow <= 1) {
-    return null;
+    return [];
   }
 
-  const values = sheet
-    .getRange(
-      2,
-      1,
-      lastRow - 1,
-      PAYROLL_HEADERS.length
-    )
-    .getValues();
-
-  let found = null;
+  const values = sheet.getRange(2, 1, lastRow - 1, PAYROLL_HEADERS.length).getValues();
+  const result = [];
+  const seen = new Set();
 
   for (let i = 0; i < values.length; i++) {
-    if (
-      String(values[i][0]).trim() ===
-      String(employeeCode).trim()
-    ) {
-      found = payrollRowToObject_(
-        values[i]
-      );
+    if (String(values[i][0] || '').trim() !== String(employeeCode || '').trim()) {
+      continue;
     }
+
+    const item = payrollRowToObject_(values[i]);
+    const month = normalizeSalaryMonth_(item.SalaryMonth);
+    const key = String(employeeCode || '').trim().toUpperCase() + '|' + month;
+
+    // One payslip per employee per month. If old duplicate rows exist,
+    // keep only one in the history response.
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
   }
 
-  return found;
+  result.sort(function(a, b) {
+    return salaryMonthSortKey_(b.SalaryMonth) - salaryMonthSortKey_(a.SalaryMonth);
+  });
+
+  return result;
+}
+
+function getLatestPayrollForEmployee_(employeeCode) {
+  const history = getPayrollHistoryForEmployee_(employeeCode);
+  return history.length ? history[0] : null;
+}
+
+function salaryMonthSortKey_(value) {
+  const m = normalizeSalaryMonth_(value).match(/^(\d{2})-(\d{4})$/);
+  if (!m) return 0;
+  return Number(m[2]) * 100 + Number(m[1]);
 }
 
 function normalizeSalaryMonth_(value) {
