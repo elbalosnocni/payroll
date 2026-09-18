@@ -2071,8 +2071,8 @@ function renderEmployee() {
             subgroups: [
                 {
                     title: 'I. Lương tháng',
-                    fields: [
-                        ['MonthlySalary', 'Lương tháng', 'money'],
+                    total: ['MonthlySalary', 'Lương tháng', 'money'],
+                    fields: [                    
                         ['BasicSalary', 'Lương cơ bản', 'money'],
                         ['WorkingDays', 'Số ngày làm việc', 'number'],
                         ['HolidayDays', 'Số ngày lễ', 'number'],
@@ -2083,8 +2083,9 @@ function renderEmployee() {
                 },
                 {
                     title: 'II. Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm',
+                    total: ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
                     fields: [
-                        ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
+                        
                         ['OvertimeHours', 'Số giờ làm ngoài giờ', 'number'],
                         ['HolidayWorkHours', 'Số giờ làm ngày nghỉ', 'number'],
                         ['HolidayOvertimeHours', 'Số giờ làm ngoài giờ ngày nghỉ', 'number'],
@@ -2097,8 +2098,8 @@ function renderEmployee() {
                 },
                 {
                     title: 'III. Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác',
-                    fields: [
-                        ['OtherIncome', 'Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác', 'money'],
+                    total:  ['OtherIncome', 'Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác', 'money'],
+                    fields: [                       
                         ['OtherMoney', 'Tiền khác (công tác phí, cơm)', 'money'],
                         ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
                         ['Loyalty2Years', 'Tiền gắn bó với công ty 2 năm', 'money'],
