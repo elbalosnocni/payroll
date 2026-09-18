@@ -196,47 +196,103 @@ input {
     font-size: 21px;
 }
 
-.payroll-group {
+ .payroll-group {
     grid-column: 1 / -1;
-    margin-top: 8px;
-    padding: 11px 14px;
-    border-radius: 11px;
+    margin-top: 12px;
+    padding: 14px 16px;
+    border-radius: 13px;
     background: #eef2f7;
-    border: 1px solid #dbe2ea;
-    display: flex;
+    border: 1px solid #cbd5e1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 16px;
+}
+
+/* A - Thu nhap */
+.payroll-group.group-a {
+    background: #e8f5e9;
+    border: 2px solid #66bb6a;
+}
+
+/* B - Khau tru */
+.payroll-group.group-b {
+    background: #fff4e5;
+    border: 2px solid #ffb74d;
+}
+
+/* C - Luong thuc linh: noi bat nhat */
+.payroll-group.group-c {
+    background: #dff7e7;
+    border: 3px solid #16a34a;
+    padding: 18px 20px;
+    margin-top: 20px;
+    box-shadow: 0 8px 24px rgba(22, 163, 74, .16);
 }
 
 .payroll-group-title {
-    font-size: 16px;
+    min-width: 0;
+    font-size: 17px;
+    line-height: 1.35;
     font-weight: 900;
     color: #111827;
     letter-spacing: .1px;
 }
 
-.payroll-subgroup {
-    grid-column: 1 / -1;
-    margin-top: 6px;
-    padding: 9px 12px;
-    border-radius: 9px;
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
-    font-size: 14px;
-    font-weight: 900;
-    color: #1f2937;
-    display: flex;
-    align-items: center;
-    min-height: 20px;
-}
+.group-a .payroll-group-title { color: #166534; }
+.group-b .payroll-group-title { color: #9a3412; }
 
-.payroll-subgroup span {
-    display: inline-block;
+.group-c .payroll-group-title {
+    font-size: 22px;
+    color: #166534;
 }
 
 .payroll-group-total {
+    min-width: 150px;
+    text-align: right;
+    font-size: 17px;
+    line-height: 1.25;
+    font-weight: 900;
+    white-space: nowrap;
+    color: #111827;
+}
+
+.group-a .payroll-group-total { color: #166534; }
+.group-b .payroll-group-total { color: #9a3412; }
+
+.group-c .payroll-group-total {
+    min-width: 190px;
+    font-size: 28px;
+    color: #15803d;
+}
+
+.payroll-subgroup {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    padding: 11px 14px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    min-height: 44px;
+}
+
+.payroll-subgroup-title {
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.4;
+    font-weight: 900;
+    color: #1f2937;
+}
+
+.payroll-subgroup-total {
+    min-width: 130px;
+    text-align: right;
     font-size: 16px;
+    line-height: 1.25;
     font-weight: 900;
     white-space: nowrap;
     color: #111827;
@@ -475,6 +531,34 @@ th {
         font-size: 23px;
     }
 }
+
+@media (max-width: 600px) {
+    .payroll-group {
+        grid-template-columns: 1fr;
+        gap: 7px;
+    }
+
+    .payroll-group-total,
+    .payroll-subgroup-total {
+        min-width: 0;
+        width: 100%;
+        text-align: left;
+    }
+
+    .payroll-subgroup {
+        grid-template-columns: 1fr;
+        gap: 5px;
+    }
+
+    .group-c .payroll-group-title {
+        font-size: 20px;
+    }
+
+    .group-c .payroll-group-total {
+        font-size: 25px;
+    }
+}
+
 </style>
 </head>
 
@@ -2198,7 +2282,7 @@ function renderEmployee() {
 
     groups.forEach(function(group) {
         const groupHeader = document.createElement('div');
-        groupHeader.className = 'payroll-group';
+        groupHeader.className = 'payroll-group ' + (totalKey === 'GrossIncome' ? 'group-a' : totalKey === '__deductionsTotal' ? 'group-b' : totalKey === 'NetSalary' ? 'group-c' : '');
 
         const totalKey = group.total[0];
         const totalLabel = group.total[1];
