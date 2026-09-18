@@ -31,6 +31,7 @@ Private Const COL_NIGHT_HOLIDAY_OT As Long = 16
 Private Const COL_NIGHT_OT As Long = 17
 Private Const COL_HOLIDAY_WORK_DAY_HOURS As Long = 18
 Private Const COL_HOLIDAY_OT_DAY_HOURS As Long = 19
+Private Const COL_NIGHT_HOLIDAY_OT_DAY As Long = 20
 Private Const COL_NIGHT_SHIFT_DAYS As Long = 21
 Private Const COL_OTHER_MONEY As Long = 24
 Private Const COL_DISCIPLINARY_MONEY As Long = 25
@@ -516,6 +517,13 @@ Private Function ReadPayrollWorkbook_( _
                 wsSalary.Cells( _
                     rowIndex, _
                     COL_HOLIDAY_OT_DAY_HOURS))
+
+        record.Add _
+            "nightHolidayOvertimeDayHours", _
+            CellNumber_( _
+                wsSalary.Cells( _
+                    rowIndex, _
+                    COL_NIGHT_HOLIDAY_OT_DAY))
 
         record.Add _
             "nightShiftDays", _

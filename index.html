@@ -228,37 +228,11 @@ input {
     color: #1f2937;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-height: 38px;
+    min-height: 20px;
 }
 
-.payroll-subgroup-title {
-    min-width: 0;
-    flex: 1;
-}
-
-.payroll-subgroup-total {
-    font-size: 15px;
-    font-weight: 900;
-    white-space: nowrap;
-    color: #111827;
-    margin-left: auto;
-}
-
-@media (max-width: 500px) {
-    .payroll-subgroup {
-        align-items: flex-start;
-    }
-
-    .payroll-subgroup-title {
-        white-space: normal;
-        line-height: 1.35;
-    }
-
-    .payroll-subgroup-total {
-        font-size: 14px;
-    }
+.payroll-subgroup span {
+    display: inline-block;
 }
 
 .payroll-group-total {
@@ -2093,12 +2067,12 @@ function renderEmployee() {
     const groups = [
         {
             title: 'A. Các khoản thu nhập',
-            total: ['GrossIncome', 'Tổng thu nhập', 'money'],
+            total: ['OtherIncome', 'Các khoản thu nhập', 'money'],
             subgroups: [
                 {
                     title: 'I. Lương tháng',
-                    total: ['MonthlySalary', 'Lương tháng', 'money'],
-                    fields: [                    
+                    fields: [
+                        ['MonthlySalary', 'Lương tháng', 'money'],
                         ['BasicSalary', 'Lương cơ bản', 'money'],
                         ['WorkingDays', 'Số ngày làm việc', 'number'],
                         ['HolidayDays', 'Số ngày lễ', 'number'],
@@ -2109,9 +2083,8 @@ function renderEmployee() {
                 },
                 {
                     title: 'II. Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm',
-                    total: ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
                     fields: [
-                        
+                        ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
                         ['OvertimeHours', 'Số giờ làm ngoài giờ', 'number'],
                         ['HolidayWorkHours', 'Số giờ làm ngày nghỉ', 'number'],
                         ['HolidayOvertimeHours', 'Số giờ làm ngoài giờ ngày nghỉ', 'number'],
@@ -2119,13 +2092,13 @@ function renderEmployee() {
                         ['HolidayWorkDayHours', 'Số giờ làm vào ngày lễ', 'number'],
                         ['HolidayOvertimeDayHours', 'Số giờ làm ngoài giờ ngày lễ', 'number'],
                         ['NightOvertimeHours', 'Số giờ tăng ca đêm', 'number'],
+                        ['NightHolidayOvertimeDayHours', 'Số giờ tăng ca đêm ngày lễ', 'number'],
                         ['NightShiftDays', 'Số ngày làm ca đêm', 'number']
                     ]
                 },
                 {
                     title: 'III. Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác',
-                    total:  ['OtherIncome', 'Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác', 'money'],
-                    fields: [                       
+                    fields: [
                         ['OtherMoney', 'Tiền khác (công tác phí, cơm)', 'money'],
                         ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
                         ['Loyalty2Years', 'Tiền gắn bó với công ty 2 năm', 'money'],
@@ -2172,18 +2145,6 @@ function renderEmployee() {
                 const number = Number(payroll[deductionKey]);
                 return sum + (isNaN(number) ? 0 : number);
             }, 0);
-        }
-
-        // MonthlySalary chưa có trong dữ liệu trả về thì dùng BasicSalary
-        // làm fallback để mục I không bị trống. Nếu GAS đã trả MonthlySalary,
-        // giá trị MonthlySalary vẫn được ưu tiên.
-        if (
-            key === 'MonthlySalary' &&
-            (payroll[key] === undefined ||
-             payroll[key] === null ||
-             payroll[key] === '')
-        ) {
-            return payroll.BasicSalary;
         }
 
         return payroll[key];
@@ -2259,45 +2220,9 @@ function renderEmployee() {
             group.subgroups.forEach(function(subgroup) {
                 const subgroupHeader = document.createElement('div');
                 subgroupHeader.className = 'payroll-subgroup';
-
-                // Hiển thị đầy đủ:
-                //   I. Lương tháng                         12.345.678
-                //   II. Lương làm ngoài giờ...              1.234.567
-                //
-                // Trước đây code chỉ render subgroup.title nên
-                // subgroup.total (MonthlySalary, OvertimeSalary, ...)
-                // không bao giờ được đưa ra giao diện.
-
-                let subgroupTotalHtml = '';
-
-                if (Array.isArray(subgroup.total) && subgroup.total.length >= 3) {
-                    const subgroupTotalKey = subgroup.total[0];
-                    const subgroupTotalLabel = subgroup.total[1];
-                    const subgroupTotalType = subgroup.total[2];
-
-                    const subgroupTotalValue = formatFieldValue(
-                        getFieldValue(subgroupTotalKey),
-                        subgroupTotalType
-                    );
-
-                    subgroupTotalHtml = `
-                        <div
-                            class="payroll-subgroup-total"
-                            title="${escapeAttribute(subgroupTotalLabel)}">
-                            ${subgroupTotalValue}
-                        </div>
-                    `;
-                }
-
-                subgroupHeader.innerHTML = `
-                    <div class="payroll-subgroup-title">
-                        ${escapeHtml(subgroup.title)}
-                    </div>
-                    ${subgroupTotalHtml}
-                `;
-
+                subgroupHeader.innerHTML = `<span>${escapeHtml(subgroup.title)}</span>`;
                 grid.appendChild(subgroupHeader);
-                appendFields(subgroup.fields || []);
+                appendFields(subgroup.fields);
             });
         } else {
             appendFields(group.fields || []);

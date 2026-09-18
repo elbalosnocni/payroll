@@ -89,6 +89,7 @@ const PAYROLL_HEADERS = [
 
   'GrossIncome',
   'NetSalary',
+  'NightHolidayOvertimeDayHours',
 
   'UpdatedAt'
 ];
@@ -1090,6 +1091,7 @@ function payrollRecordToRow_(
 
     numberValue_(record.grossIncome),
     numberValue_(record.netSalary),
+    numberValue_(record.nightHolidayOvertimeDayHours),
 
     nowString_()
   ];
