@@ -6,7 +6,7 @@ Private Const API_URL As String = _
 Private Const SYNC_API_KEY As String = _
     "TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni"
 
-Private Const FILE_PASSWORD As String = "1234"
+Private Const FILE_PASSWORD As String = "2410"
 
 Private Const ROOT_PATH As String = _
     "\\192.168.0.253\vn hr\SALARY - 2014 - 2015\"
@@ -45,7 +45,6 @@ Private Const COL_SEVERANCE_UNUSED_LEAVE As Long = 32
 Private Const COL_MONTHLY_SALARY As Long = 40
 Private Const COL_OVERTIME_SALARY As Long = 41
 Private Const COL_COMMISSION As Long = 43
-'Private Const COL_OTHER_INCOME As Long = ""
 Private Const COL_OTHER_DEDUCTIONS As Long = 36
 Private Const COL_ADVANCE As Long = 37
 Private Const COL_SOCIAL_INSURANCE As Long = 33
@@ -617,12 +616,18 @@ Private Function ReadPayrollWorkbook_( _
                     rowIndex, _
                     COL_COMMISSION))
 
-        'record.Add _
-            "OtherIncome", _
-            CellNumber_( _
-                wsSalary.Cells( _
-                    rowIndex, _
-                    COL_OTHER_INCOME))
+        record.Add _
+            "otherIncome", _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_OTHER_MONEY)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_DISCIPLINARY_MONEY)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_LOYALTY_2)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_LOYALTY_5)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_LOYALTY_10)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_HOUSING)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_TRANSPORT)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_ATTENDANCE)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_COMMISSION)) + _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_SEVERANCE_UNUSED_LEAVE))
 
         record.Add _
             "otherDeductions", _
@@ -667,11 +672,8 @@ Private Function ReadPayrollWorkbook_( _
                     COL_PERSONAL_INCOME_TAX))
 
         record.Add _
-                    "GrossIncome", _
-                    CellNumber_( _
-                        wsSalary.Cells( _
-                            rowIndex, _
-                            COL_GROSS_INCOME))
+                    "grossIncome", _
+            CellNumber_(wsSalary.Cells(rowIndex, COL_GROSS_INCOME))
                     
         record.Add _
             "netSalary", _
@@ -1190,8 +1192,8 @@ Private Function RecordToJson_( _
         record("commissionAndOverTargetBonus"), True
 
     AddJsonNumber_ json, _
-        "OtherIncome", _
-        record("OtherIncome"), True
+        "otherIncome", _
+        record("otherIncome"), True
 
     AddJsonNumber_ json, _
         "otherDeductions", _
@@ -1218,8 +1220,8 @@ Private Function RecordToJson_( _
         record("personalIncomeTax"), True
 
     AddJsonNumber_ json, _
-            "GrossIncome", _
-            record("GrossIncome"), True
+            "grossIncome", _
+        record("grossIncome"), True
             
     AddJsonNumber_ json, _
         "netSalary", _

@@ -2134,6 +2134,24 @@ function renderEmployee() {
     ];
 
     function getFieldValue(key) {
+        if (key === 'OtherIncome') {
+            return [
+                'OtherMoney',
+                'DisciplinaryMoney',
+                'Loyalty2Years',
+                'Loyalty5Years',
+                'Loyalty10Years',
+                'HousingAllowance',
+                'TransportationAllowance',
+                'AttendanceBonus',
+                'CommissionAndOverTargetBonus',
+                'SeveranceAndUnusedLeave'
+            ].reduce(function(sum, incomeKey) {
+                const number = Number(payroll[incomeKey]);
+                return sum + (isNaN(number) ? 0 : number);
+            }, 0);
+        }
+
         if (key === '__deductionsTotal') {
             return [
                 'SocialInsurance',

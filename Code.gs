@@ -1039,6 +1039,19 @@ function payrollRecordToRow_(
   month,
   employee
 ) {
+  // Excel khong co cot OtherIncome rieng. Muc III la tong cac subgroup.
+  const otherIncome =
+    numberValue_(record.otherMoney) +
+    numberValue_(record.disciplinaryMoney) +
+    numberValue_(record.loyalty2Years) +
+    numberValue_(record.loyalty5Years) +
+    numberValue_(record.loyalty10Years) +
+    numberValue_(record.housingAllowance) +
+    numberValue_(record.transportationAllowance) +
+    numberValue_(record.attendanceBonus) +
+    numberValue_(record.commissionAndOverTargetBonus) +
+    numberValue_(record.severanceAndUnusedLeave);
+
   return [
     employee.employeeCode,
     employee.fullName,
@@ -1079,7 +1092,7 @@ function payrollRecordToRow_(
     numberValue_(record.monthlySalary),
     numberValue_(record.overtimeSalary),
     numberValue_(record.commissionAndOverTargetBonus),
-    numberValue_(record.otherIncome),
+    otherIncome,
 
     numberValue_(record.otherDeductions),
     numberValue_(record.advancePayment),
@@ -1106,22 +1119,28 @@ function deletePayrollMonth_(month) {
     return 0;
   }
 
-  const values = sheet.getRange(2, 1, lastRow - 1, PAYROLL_HEADERS.length).getValues();
-  const rowsToDelete = [];
+  const rowCount = lastRow - 1;
+  const values = sheet.getRange(2, 1, rowCount, PAYROLL_HEADERS.length).getValues();
+  const kept = [];
+  let removed = 0;
 
-  for (let i = 0; i < values.length; i++) {
-    // IMPORTANT: compare normalized month, not String(Date).
-    // Old rows may already contain a Google Sheets Date object.
-    if (normalizeSalaryMonth_(values[i][6]) === targetMonth) {
-      rowsToDelete.push(i + 2);
+  values.forEach(function(row) {
+    if (normalizeSalaryMonth_(row[6]) === targetMonth) {
+      removed++;
+    } else {
+      kept.push(row);
     }
+  });
+
+  // Do not use deleteRow(). It can fail when the sheet has frozen rows.
+  // Clear the data area and rewrite only the rows that must remain.
+  sheet.getRange(2, 1, rowCount, PAYROLL_HEADERS.length).clearContent();
+
+  if (kept.length > 0) {
+    sheet.getRange(2, 1, kept.length, PAYROLL_HEADERS.length).setValues(kept);
   }
 
-  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
-    sheet.deleteRow(rowsToDelete[i]);
-  }
-
-  return rowsToDelete.length;
+  return removed;
 }
 
 function upsertEmployee_(
