@@ -6,7 +6,7 @@ Private Const API_URL As String = _
 Private Const SYNC_API_KEY As String = _
     "TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni"
 
-Private Const FILE_PASSWORD As String = "2410"
+Private Const FILE_PASSWORD As String = "1234"
 
 Private Const ROOT_PATH As String = _
     "\\192.168.0.253\vn hr\SALARY - 2014 - 2015\"
