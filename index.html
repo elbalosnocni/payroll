@@ -397,6 +397,36 @@ th {
     font-size: 13px;
 }
 
+/* Nhóm hiển thị phiếu lương */
+.payroll-group-title {
+    grid-column: 1 / -1;
+    margin: 18px 0 0;
+    padding: 12px 14px;
+    border-radius: 11px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.payroll-group-title:first-child {
+    margin-top: 0;
+}
+
+.payroll-group-total {
+    background: #ecfdf5;
+    border-color: #86efac;
+}
+
+.payroll-total-item {
+    grid-column: 1 / -1;
+}
+
+.payroll-item.group-subitem {
+    min-width: 0;
+}
+
 @media (max-width: 800px) {
     .admin-layout {
         grid-template-columns: 1fr;
@@ -411,12 +441,46 @@ th {
         flex-wrap: wrap;
     }
 
+    /* Điện thoại vẫn hiển thị 2 cột */
     .payroll-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .payroll-item {
+        padding: 11px;
+    }
+
+    .payroll-label {
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    .payroll-value {
+        font-size: 15px;
+        word-break: break-word;
+    }
+
+    .net-salary {
+        font-size: 20px;
     }
 
     .employee-header {
         flex-direction: column;
+    }
+}
+
+@media (max-width: 380px) {
+    .payroll-grid {
+        gap: 6px;
+    }
+
+    .payroll-item {
+        padding: 9px;
+    }
+
+    .payroll-value {
+        font-size: 14px;
     }
 }
 
@@ -2011,81 +2075,101 @@ function renderEmployee() {
 
     populatePayrollMonthSelect_();
 
-    const fields = [
-        ['SalaryMonth', 'Tháng lương', 'text'],
-        ['BasicSalary', 'Lương cơ bản', 'money'],
-        ['WorkingDays', 'Số ngày làm việc', 'number'],
-        ['HolidayDays', 'Số ngày lễ', 'number'],
-        ['PaidLeaveDays', 'Nghỉ hưởng lương', 'number'],
-        ['UnpaidLeaveDays', 'Nghỉ không hưởng lương', 'number'],
-        ['OvertimeHours', 'Giờ làm ngoài giờ', 'number'],
-        ['HolidayWorkHours', 'Giờ làm ngày nghỉ', 'number'],
-        ['HolidayOvertimeHours', 'Giờ ngoài giờ ngày nghỉ', 'number'],
-        ['MinimumRegionalLeaveDays', 'Nghỉ hưởng lương tối thiểu vùng', 'number'],
-        ['NightHolidayOvertimeHours', 'TC đêm ngày nghỉ', 'number'],
-        ['NightOvertimeHours', 'TC đêm', 'number'],
-        ['HolidayWorkDayHours', 'Giờ làm ngày lễ', 'number'],
-        ['HolidayOvertimeDayHours', 'Giờ ngoài giờ ngày lễ', 'number'],
-        ['NightShiftDays', 'Số ngày làm ca đêm', 'number'],
-        ['OtherMoney', 'Tiền khác', 'money'],
-        ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
-        ['Loyalty2Years', 'Tiền gắn bó 2 năm', 'money'],
-        ['Loyalty5Years', 'Tiền gắn bó 5 năm', 'money'],
-        ['Loyalty10Years', 'Tiền gắn bó 10 năm', 'money'],
-        ['HousingAllowance', 'Tiền nhà ở', 'money'],
-        ['TransportationAllowance', 'Tiền đi lại', 'money'],
-        ['AttendanceBonus', 'Thưởng chuyên cần', 'money'],
-        ['SeveranceAndUnusedLeave', 'Trợ cấp thôi việc & phép năm còn lại', 'money'],
-        ['MonthlySalary', 'Lương tháng', 'money'],
-        ['OvertimeSalary', 'Lương ngoài giờ/ngày nghỉ/đêm', 'money'],
-        ['CommissionAndOverTargetBonus', 'Hoa hồng & thưởng vượt định mức', 'money'],
-        ['OtherIncome', 'Các khoản thu nhập', 'money'],
-        ['OtherDeductions', 'Các khoản khấu trừ khác', 'money'],
-        ['AdvancePayment', 'Tạm ứng', 'money'],
-        ['SocialInsurance', 'BHXH', 'money'],
-        ['HealthInsurance', 'BHYT', 'money'],
-        ['UnemploymentInsurance', 'BHTN', 'money'],
-        ['PersonalIncomeTax', 'Thuế thu nhập', 'money'],
-        ['GrossIncome', 'Tổng thu nhập', 'money'],
-        ['NetSalary', 'Lương thực lĩnh', 'money']
+    /*
+     * Bố cục phiếu lương:
+     * A. Các khoản thu nhập      -> AR (OtherIncome)
+     * B. Các khoản khấu trừ
+     * C. Lương thực lĩnh         -> AW (NetSalary)
+     *
+     * Các khoản tiền dùng formatMoney()
+     * Các số ngày/giờ dùng formatNumber() với tối đa 2 số lẻ.
+     */
+    const groups = [
+        {
+            title: 'A. Các Khoản Thu Nhập',
+            total: ['OtherIncome', 'Tổng các khoản thu nhập', 'money'],
+            items: [
+                {
+                    title: '1. Lương tháng',
+                    fields: [
+                        ['MonthlySalary', 'Lương tháng', 'money'],
+                        ['BasicSalary', 'Lương cơ bản', 'money'],
+                        ['WorkingDays', 'Số ngày làm việc', 'number'],
+                        ['HolidayDays', 'Số ngày lễ', 'number'],
+                        ['PaidLeaveDays', 'Số ngày nghỉ hưởng lương', 'number'],
+                        ['UnpaidLeaveDays', 'Số ngày nghỉ không hưởng lương', 'number'],
+                        ['MinimumRegionalLeaveDays', 'Số ngày nghỉ hưởng lương tối thiểu vùng', 'number']
+                    ]
+                },
+                {
+                    title: '2. Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm',
+                    fields: [
+                        ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
+                        ['OvertimeHours', 'Số giờ làm ngoài giờ', 'number'],
+                        ['HolidayWorkHours', 'Số giờ làm ngày nghỉ', 'number'],
+                        ['HolidayOvertimeHours', 'Số giờ làm ngoài giờ ngày nghỉ', 'number'],
+                        ['NightHolidayOvertimeHours', 'Số giờ tăng ca đêm ngày nghỉ', 'number'],
+                        ['HolidayWorkDayHours', 'Số giờ làm vào ngày lễ', 'number'],
+                        ['HolidayOvertimeDayHours', 'Số giờ làm ngoài giờ ngày lễ', 'number'],
+                        ['NightShiftDays', 'Số ngày làm ca đêm', 'number'],
+                        ['NightOvertimeHours', 'Số giờ tăng ca đêm', 'number']
+                    ]
+                },
+                {
+                    title: '3. Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác',
+                    fields: [
+                        ['OtherMoney', 'Tiền khác (công tác phí, cơm)', 'money'],
+                        ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
+                        ['Loyalty2Years', 'Tiền gắn bó với công ty 2 năm', 'money'],
+                        ['Loyalty5Years', 'Tiền gắn bó với công ty 5 năm', 'money'],
+                        ['Loyalty10Years', 'Tiền gắn bó với công ty 10 năm', 'money'],
+                        ['HousingAllowance', 'Tiền nhà ở', 'money'],
+                        ['TransportationAllowance', 'Tiền đi lại', 'money'],
+                        ['AttendanceBonus', 'Tiền thưởng chuyên cần', 'money'],
+                        ['CommissionAndOverTargetBonus', 'Hoa hồng bán hàng & tiền thưởng vượt định mức', 'money'],
+                        ['SeveranceAndUnusedLeave', 'Trợ cấp thôi việc & những ngày phép năm còn lại', 'money']
+                    ]
+                }
+            ]
+        },
+        {
+            title: 'B. Các Khoản Khấu Trừ',
+            fields: [
+                ['SocialInsurance', 'BHXH', 'money'],
+                ['HealthInsurance', 'BHYT', 'money'],
+                ['UnemploymentInsurance', 'BHTN', 'money'],
+                ['PersonalIncomeTax', 'Thuế thu nhập', 'money'],
+                ['AdvancePayment', 'Tạm ứng', 'money'],
+                ['OtherDeductions', 'Các khoản khấu trừ khác', 'money']
+            ]
+        },
+        {
+            title: 'C. Lương Thực Lĩnh',
+            total: ['NetSalary', 'Lương thực lĩnh', 'money']
+        }
     ];
 
-    fields.forEach(function(field) {
-        const key = field[0];
-        const label = field[1];
-        const type = field[2];
+    function appendPayrollItem_(key, label, type, extraClass) {
+        let value = payroll[key];
 
-        let value =
-            payroll[key];
-
-        if (
-            value === null ||
-            value === undefined
-        ) {
+        if (value === null || value === undefined || value === '') {
             value = '';
         }
 
         if (type === 'money') {
-            value =
-                formatMoney(value);
+            value = formatMoney(value);
         } else if (type === 'number') {
-            value =
-                formatNumber(value);
+            value = formatNumber(value);
         } else {
-            value =
-                escapeHtml(String(value));
+            value = escapeHtml(String(value));
         }
 
-        const item =
-            document.createElement('div');
-
-        item.className =
-            'payroll-item';
+        const item = document.createElement('div');
+        item.className = 'payroll-item' +
+            (extraClass ? ' ' + extraClass : '');
 
         if (key === 'NetSalary') {
-            item.classList.add(
-                'highlight'
-            );
+            item.classList.add('highlight');
         }
 
         item.innerHTML = `
@@ -2093,17 +2177,60 @@ function renderEmployee() {
                 ${escapeHtml(label)}
             </div>
             <div class="payroll-value ${
-                key === 'NetSalary'
-                    ? 'net-salary'
-                    : ''
+                key === 'NetSalary' ? 'net-salary' : ''
             }">
                 ${value}
             </div>
         `;
 
         grid.appendChild(item);
+    }
+
+    groups.forEach(function(group) {
+        const groupTitle = document.createElement('div');
+        groupTitle.className = 'payroll-group-title' +
+            (group.total ? ' payroll-group-total' : '');
+        groupTitle.textContent = group.title;
+        grid.appendChild(groupTitle);
+
+        if (group.total) {
+            appendPayrollItem_(
+                group.total[0],
+                group.total[1],
+                group.total[2],
+                'payroll-total-item'
+            );
+        }
+
+        if (group.items) {
+            group.items.forEach(function(section) {
+                const sectionTitle = document.createElement('div');
+                sectionTitle.className = 'payroll-group-title';
+                sectionTitle.textContent = section.title;
+                grid.appendChild(sectionTitle);
+
+                section.fields.forEach(function(field) {
+                    appendPayrollItem_(
+                        field[0],
+                        field[1],
+                        field[2],
+                        'group-subitem'
+                    );
+                });
+            });
+        }
+
+        if (group.fields) {
+            group.fields.forEach(function(field) {
+                appendPayrollItem_(
+                    field[0],
+                    field[1],
+                    field[2],
+                    'group-subitem'
+                );
+            });
+        }
     });
-}
 
 async function logoutEmployee() {
     try {
@@ -2263,7 +2390,12 @@ function formatMoney(value) {
     }
 
     return new Intl.NumberFormat(
-        'vi-VN'
+        'vi-VN',
+        {
+            style: 'currency',
+            currency: 'VND',
+            maximumFractionDigits: 0
+        }
     ).format(number);
 }
 
