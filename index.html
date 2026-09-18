@@ -2071,8 +2071,8 @@ function renderEmployee() {
             subgroups: [
                 {
                     title: 'I. Lương tháng',
-                    fields: [
-                        ['MonthlySalary', 'Lương tháng', 'money'],
+                    total: ['MonthlySalary', 'Lương tháng', 'money'],
+                    fields: [                    
                         ['BasicSalary', 'Lương cơ bản', 'money'],
                         ['WorkingDays', 'Số ngày làm việc', 'number'],
                         ['HolidayDays', 'Số ngày lễ', 'number'],
@@ -2083,8 +2083,8 @@ function renderEmployee() {
                 },
                 {
                     title: 'II. Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm',
+                    total: ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
                     fields: [
-                        ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
                         ['OvertimeHours', 'Số giờ làm ngoài giờ', 'number'],
                         ['HolidayWorkHours', 'Số giờ làm ngày nghỉ', 'number'],
                         ['HolidayOvertimeHours', 'Số giờ làm ngoài giờ ngày nghỉ', 'number'],
@@ -2098,6 +2098,7 @@ function renderEmployee() {
                 },
                 {
                     title: 'III. Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác',
+                     total:  ['OtherIncome', 'Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác', 'money'],
                     fields: [
                         ['OtherMoney', 'Tiền khác (công tác phí, cơm)', 'money'],
                         ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
@@ -2146,7 +2147,18 @@ function renderEmployee() {
                 return sum + (isNaN(number) ? 0 : number);
             }, 0);
         }
-
+        
+        // MonthlySalary chưa có trong dữ liệu trả về thì dùng BasicSalary
+        // làm fallback để mục I không bị trống. Nếu GAS đã trả MonthlySalary,
+        // giá trị MonthlySalary vẫn được ưu tiên.
+        if (
+            key === 'MonthlySalary' &&
+            (payroll[key] === undefined ||
+             payroll[key] === null ||
+             payroll[key] === '')
+        ) {
+            return payroll.BasicSalary;
+        }
         return payroll[key];
     }
 
@@ -2220,9 +2232,45 @@ function renderEmployee() {
             group.subgroups.forEach(function(subgroup) {
                 const subgroupHeader = document.createElement('div');
                 subgroupHeader.className = 'payroll-subgroup';
-                subgroupHeader.innerHTML = `<span>${escapeHtml(subgroup.title)}</span>`;
+
+                // Hiển thị đầy đủ:
+                //   I. Lương tháng                         12.345.678
+                //   II. Lương làm ngoài giờ...              1.234.567
+                //
+                // Trước đây code chỉ render subgroup.title nên
+                // subgroup.total (MonthlySalary, OvertimeSalary, ...)
+                // không bao giờ được đưa ra giao diện.
+
+                let subgroupTotalHtml = '';
+
+                if (Array.isArray(subgroup.total) && subgroup.total.length >= 3) {
+                    const subgroupTotalKey = subgroup.total[0];
+                    const subgroupTotalLabel = subgroup.total[1];
+                    const subgroupTotalType = subgroup.total[2];
+
+                    const subgroupTotalValue = formatFieldValue(
+                        getFieldValue(subgroupTotalKey),
+                        subgroupTotalType
+                    );
+
+                    subgroupTotalHtml = `
+                        <div
+                            class="payroll-subgroup-total"
+                            title="${escapeAttribute(subgroupTotalLabel)}">
+                            ${subgroupTotalValue}
+                        </div>
+                    `;
+                }
+
+                subgroupHeader.innerHTML = `
+                    <div class="payroll-subgroup-title">
+                        ${escapeHtml(subgroup.title)}
+                    </div>
+                    ${subgroupTotalHtml}
+                `;
+
                 grid.appendChild(subgroupHeader);
-                appendFields(subgroup.fields);
+                appendFields(subgroup.fields || []);
             });
         } else {
             appendFields(group.fields || []);
