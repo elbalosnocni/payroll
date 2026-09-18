@@ -210,9 +210,29 @@ input {
 }
 
 .payroll-group-title {
-    font-size: 15px;
-    font-weight: 800;
-    color: #374151;
+    font-size: 16px;
+    font-weight: 900;
+    color: #111827;
+    letter-spacing: .1px;
+}
+
+.payroll-subgroup {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+    padding: 9px 12px;
+    border-radius: 9px;
+    background: #f3f4f6;
+    border: 1px solid #d1d5db;
+    font-size: 14px;
+    font-weight: 900;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    min-height: 20px;
+}
+
+.payroll-subgroup span {
+    display: inline-block;
 }
 
 .payroll-group-total {
@@ -2048,36 +2068,49 @@ function renderEmployee() {
         {
             title: 'A. Các khoản thu nhập',
             total: ['GrossIncome', 'Tổng thu nhập', 'money'],
-            fields: [
-                ['MonthlySalary', '1. Lương tháng', 'money'],
-                ['BasicSalary', 'Lương cơ bản', 'money'],
-                ['WorkingDays', 'Số ngày làm việc', 'number'],
-                ['HolidayDays', 'Số ngày lễ', 'number'],
-                ['PaidLeaveDays', 'Số ngày nghỉ hưởng lương', 'number'],
-                ['UnpaidLeaveDays', 'Số ngày nghỉ không hưởng lương', 'number'],
-                ['MinimumRegionalLeaveDays', 'Số ngày nghỉ hưởng lương tối thiểu vùng', 'number'],
-
-                ['OvertimeSalary', '2. Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
-                ['OvertimeHours', 'Số giờ làm ngoài giờ', 'number'],
-                ['HolidayWorkHours', 'Số giờ làm ngày nghỉ', 'number'],
-                ['HolidayOvertimeHours', 'Số giờ làm ngoài giờ ngày nghỉ', 'number'],
-                ['NightHolidayOvertimeHours', 'Số giờ tăng ca đêm ngày nghỉ', 'number'],
-                ['HolidayWorkDayHours', 'Số giờ làm vào ngày lễ', 'number'],
-                ['HolidayOvertimeDayHours', 'Số giờ làm ngoài giờ ngày lễ', 'number'],
-                ['NightOvertimeHours', 'Số giờ tăng ca đêm', 'number'],
-                ['NightShiftDays', 'Số ngày làm ca đêm', 'number'],
-
-                ['OtherIncome', '3. Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác', 'money'],
-                ['OtherMoney', 'Tiền khác (công tác phí, cơm)', 'money'],
-                ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
-                ['Loyalty2Years', 'Tiền gắn bó với công ty 2 năm', 'money'],
-                ['Loyalty5Years', 'Tiền gắn bó với công ty 5 năm', 'money'],
-                ['Loyalty10Years', 'Tiền gắn bó với công ty 10 năm', 'money'],
-                ['HousingAllowance', 'Tiền nhà ở', 'money'],
-                ['TransportationAllowance', 'Tiền đi lại', 'money'],
-                ['AttendanceBonus', 'Tiền thưởng chuyên cần', 'money'],
-                ['CommissionAndOverTargetBonus', 'Hoa hồng bán hàng & tiền thưởng vượt định mức', 'money'],
-                ['SeveranceAndUnusedLeave', 'Trợ cấp thôi việc & những ngày phép năm còn lại', 'money']
+            subgroups: [
+                {
+                    title: 'I. Lương tháng',
+                    fields: [
+                        ['MonthlySalary', 'Lương tháng', 'money'],
+                        ['BasicSalary', 'Lương cơ bản', 'money'],
+                        ['WorkingDays', 'Số ngày làm việc', 'number'],
+                        ['HolidayDays', 'Số ngày lễ', 'number'],
+                        ['PaidLeaveDays', 'Số ngày nghỉ hưởng lương', 'number'],
+                        ['UnpaidLeaveDays', 'Số ngày nghỉ không hưởng lương', 'number'],
+                        ['MinimumRegionalLeaveDays', 'Số ngày nghỉ hưởng lương tối thiểu vùng', 'number']
+                    ]
+                },
+                {
+                    title: 'II. Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm',
+                    fields: [
+                        ['OvertimeSalary', 'Lương làm ngoài giờ, làm ngày nghỉ, làm ca đêm', 'money'],
+                        ['OvertimeHours', 'Số giờ làm ngoài giờ', 'number'],
+                        ['HolidayWorkHours', 'Số giờ làm ngày nghỉ', 'number'],
+                        ['HolidayOvertimeHours', 'Số giờ làm ngoài giờ ngày nghỉ', 'number'],
+                        ['NightHolidayOvertimeHours', 'Số giờ tăng ca đêm ngày nghỉ', 'number'],
+                        ['HolidayWorkDayHours', 'Số giờ làm vào ngày lễ', 'number'],
+                        ['HolidayOvertimeDayHours', 'Số giờ làm ngoài giờ ngày lễ', 'number'],
+                        ['NightOvertimeHours', 'Số giờ tăng ca đêm', 'number'],
+                        ['NightShiftDays', 'Số ngày làm ca đêm', 'number']
+                    ]
+                },
+                {
+                    title: 'III. Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác',
+                    fields: [
+                        ['OtherIncome', 'Các khoản phụ cấp, trợ cấp, hỗ trợ, bổ sung khác', 'money'],
+                        ['OtherMoney', 'Tiền khác (công tác phí, cơm)', 'money'],
+                        ['DisciplinaryMoney', 'Tiền kỷ luật', 'money'],
+                        ['Loyalty2Years', 'Tiền gắn bó với công ty 2 năm', 'money'],
+                        ['Loyalty5Years', 'Tiền gắn bó với công ty 5 năm', 'money'],
+                        ['Loyalty10Years', 'Tiền gắn bó với công ty 10 năm', 'money'],
+                        ['HousingAllowance', 'Tiền nhà ở', 'money'],
+                        ['TransportationAllowance', 'Tiền đi lại', 'money'],
+                        ['AttendanceBonus', 'Tiền thưởng chuyên cần', 'money'],
+                        ['CommissionAndOverTargetBonus', 'Hoa hồng bán hàng & tiền thưởng vượt định mức', 'money'],
+                        ['SeveranceAndUnusedLeave', 'Trợ cấp thôi việc & những ngày phép năm còn lại', 'money']
+                    ]
+                }
             ]
         },
         {
@@ -2157,29 +2190,43 @@ function renderEmployee() {
         groupHeader.title = totalLabel;
         grid.appendChild(groupHeader);
 
-        group.fields.forEach(function(field) {
-            const key = field[0];
-            const label = field[1];
-            const type = field[2];
-            const value = formatFieldValue(
-                payroll[key],
-                type
-            );
+        function appendFields(fields) {
+            fields.forEach(function(field) {
+                const key = field[0];
+                const label = field[1];
+                const type = field[2];
+                const value = formatFieldValue(
+                    payroll[key],
+                    type
+                );
 
-            const item = document.createElement('div');
-            item.className = 'payroll-item';
+                const item = document.createElement('div');
+                item.className = 'payroll-item';
 
-            item.innerHTML = `
-                <div class="payroll-label">
-                    ${escapeHtml(label)}
-                </div>
-                <div class="payroll-value">
-                    ${value}
-                </div>
-            `;
+                item.innerHTML = `
+                    <div class="payroll-label">
+                        ${escapeHtml(label)}
+                    </div>
+                    <div class="payroll-value">
+                        ${value}
+                    </div>
+                `;
 
-            grid.appendChild(item);
-        });
+                grid.appendChild(item);
+            });
+        }
+
+        if (Array.isArray(group.subgroups)) {
+            group.subgroups.forEach(function(subgroup) {
+                const subgroupHeader = document.createElement('div');
+                subgroupHeader.className = 'payroll-subgroup';
+                subgroupHeader.innerHTML = `<span>${escapeHtml(subgroup.title)}</span>`;
+                grid.appendChild(subgroupHeader);
+                appendFields(subgroup.fields);
+            });
+        } else {
+            appendFields(group.fields || []);
+        }
     });
 }
 
