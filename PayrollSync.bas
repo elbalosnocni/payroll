@@ -6,7 +6,7 @@ Private Const API_URL As String = _
 Private Const SYNC_API_KEY As String = _
     "TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni"
 
-Private Const FILE_PASSWORD As String = "1234"
+Private Const FILE_PASSWORD As String = "2410"
 
 Private Const ROOT_PATH As String = _
     "\\192.168.0.253\vn hr\SALARY - 2014 - 2015\"
@@ -45,13 +45,14 @@ Private Const COL_SEVERANCE_UNUSED_LEAVE As Long = 32
 Private Const COL_MONTHLY_SALARY As Long = 40
 Private Const COL_OVERTIME_SALARY As Long = 41
 Private Const COL_COMMISSION As Long = 43
-Private Const COL_OTHER_INCOME As Long = 44
+'Private Const COL_OTHER_INCOME As Long = ""
 Private Const COL_OTHER_DEDUCTIONS As Long = 36
 Private Const COL_ADVANCE As Long = 37
 Private Const COL_SOCIAL_INSURANCE As Long = 33
 Private Const COL_HEALTH_INSURANCE As Long = 34
 Private Const COL_UNEMPLOYMENT_INSURANCE As Long = 35
 Private Const COL_PERSONAL_INCOME_TAX As Long = 46
+Private Const COL_GROSS_INCOME As Long = 44
 Private Const COL_NET_SALARY As Long = 49
 Private Const COL_FULL_NAME As Long = 84
 
@@ -143,7 +144,7 @@ Public Sub RunPayrollSync()
 
     End If
 
-    If allRecords.Count = 0 Then
+    If allRecords.count = 0 Then
         Err.Raise _
             vbObjectError + 1001, _
             "RunPayrollSync", _
@@ -151,7 +152,7 @@ Public Sub RunPayrollSync()
     End If
 
     LogMessage "Tong so dong du lieu: " & _
-               CStr(allRecords.Count)
+               CStr(allRecords.count)
 
     payload = BuildSyncPayload_( _
         allRecords, _
@@ -291,8 +292,8 @@ Private Function ReadPayrollWorkbook_( _
         filePath
 
     Set wb = Workbooks.Open( _
-        Filename:=filePath, _
-        Password:=FILE_PASSWORD, _
+        fileName:=filePath, _
+        password:=FILE_PASSWORD, _
         ReadOnly:=True, _
         UpdateLinks:=False, _
         AddToMru:=False)
@@ -616,8 +617,8 @@ Private Function ReadPayrollWorkbook_( _
                     rowIndex, _
                     COL_COMMISSION))
 
-        record.Add _
-            "otherIncome", _
+        'record.Add _
+            "OtherIncome", _
             CellNumber_( _
                 wsSalary.Cells( _
                     rowIndex, _
@@ -666,6 +667,13 @@ Private Function ReadPayrollWorkbook_( _
                     COL_PERSONAL_INCOME_TAX))
 
         record.Add _
+                    "GrossIncome", _
+                    CellNumber_( _
+                        wsSalary.Cells( _
+                            rowIndex, _
+                            COL_GROSS_INCOME))
+                    
+        record.Add _
             "netSalary", _
             CellNumber_( _
                 wsSalary.Cells( _
@@ -684,7 +692,7 @@ ContinueSalaryRow:
     LogMessage _
         "[" & factoryName & _
         "] Doc duoc " & _
-        CStr(result.Count) & _
+        CStr(result.count) & _
         " dong."
 
     Set ReadPayrollWorkbook_ = result
@@ -850,7 +858,7 @@ Private Function ReadCitizenID_( _
             Else
 
                 textValue = _
-                    CStr(cell.Text)
+                    CStr(cell.text)
 
             End If
 
@@ -887,7 +895,7 @@ Private Function ReadCitizenID_( _
 Fallback:
 
     ReadCitizenID_ = _
-        Trim$(CStr(cell.Text))
+        Trim$(CStr(cell.text))
 
 End Function
 
@@ -958,8 +966,8 @@ Private Function LastUsedRow_( _
 
     LastUsedRow_ = _
         ws.Cells( _
-            ws.Rows.Count, _
-            columnNumber).End(xlUp).Row
+            ws.Rows.count, _
+            columnNumber).End(xlUp).row
 
 End Function
 
@@ -1027,7 +1035,7 @@ Private Function BuildSyncPayload_( _
     json = json & _
         """records"":["
 
-    For i = 1 To records.Count
+    For i = 1 To records.count
 
         If i > 1 Then
             json = json & ","
@@ -1182,8 +1190,8 @@ Private Function RecordToJson_( _
         record("commissionAndOverTargetBonus"), True
 
     AddJsonNumber_ json, _
-        "otherIncome", _
-        record("otherIncome"), True
+        "OtherIncome", _
+        record("OtherIncome"), True
 
     AddJsonNumber_ json, _
         "otherDeductions", _
@@ -1209,6 +1217,10 @@ Private Function RecordToJson_( _
         "personalIncomeTax", _
         record("personalIncomeTax"), True
 
+    AddJsonNumber_ json, _
+            "GrossIncome", _
+            record("GrossIncome"), True
+            
     AddJsonNumber_ json, _
         "netSalary", _
         record("netSalary"), False
@@ -1419,7 +1431,7 @@ Private Function HttpPostJson_( _
     http.Send bodyBytes
 
     HttpPostJson_ = _
-        CStr(http.ResponseText)
+        CStr(http.responseText)
 
     Exit Function
 
@@ -1445,7 +1457,7 @@ Private Function Utf8Bytes_( _
     stream.Charset = "utf-8"
     stream.Open
     stream.WriteText textValue
-    stream.Position = 0
+    stream.position = 0
     stream.Type = 1
 
     bytes = stream.Read
@@ -1457,7 +1469,7 @@ Private Function Utf8Bytes_( _
            bytes(1) = &HBB And _
            bytes(2) = &HBF Then
 
-            stream.Position = 3
+            stream.position = 3
             bytes = stream.Read
         End If
     End If
@@ -1515,7 +1527,7 @@ Private Sub LogMessage( _
     Dim fileNumber As Integer
 
     logFile = _
-        ThisWorkbook.Path & _
+        ThisWorkbook.path & _
         "\PayrollSync.log"
 
     fileNumber = _
@@ -1533,3 +1545,4 @@ Private Sub LogMessage( _
     Close #fileNumber
 
 End Sub
+
