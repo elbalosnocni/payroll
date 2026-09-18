@@ -267,10 +267,37 @@ function ensureSystem_() {
 
   ensureSheet_(ss, CONFIG.SHEETS.EMPLOYEES, EMPLOYEE_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.PAYROLL, PAYROLL_HEADERS);
-  ensureSheet_(ss, CONFIG.SHEETS.ADMINS, ADMIN_HEADERS);
+  const adminSheet = ensureSheet_(ss, CONFIG.SHEETS.ADMINS, ADMIN_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.SESSIONS, SESSION_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.AUDIT, AUDIT_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.SYNC, SYNC_HEADERS);
+
+  // Tự khởi tạo tài khoản Admin mặc định nếu sheet Admins chưa có.
+  // Việc này giúp Admin đăng nhập ngay cả khi chưa chạy setup() thủ công.
+  const adminLastRow = adminSheet.getLastRow();
+  let adminExists = false;
+
+  if (adminLastRow > 1) {
+    const adminValues = adminSheet
+      .getRange(2, 1, adminLastRow - 1, ADMIN_HEADERS.length)
+      .getValues();
+
+    adminExists = adminValues.some(function(row) {
+      return String(row[0] || '').trim() === CONFIG.DEFAULT_ADMIN_USERNAME;
+    });
+  }
+
+  if (!adminExists) {
+    const passwordData = createPasswordHash_(CONFIG.DEFAULT_ADMIN_PASSWORD);
+
+    adminSheet.appendRow([
+      CONFIG.DEFAULT_ADMIN_USERNAME,
+      passwordData.hash,
+      passwordData.salt,
+      true,
+      nowString_()
+    ]);
+  }
 }
 
 function ensureSheet_(ss, name, headers) {

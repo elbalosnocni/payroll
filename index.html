@@ -198,28 +198,78 @@ input {
 
 .payroll-group {
     grid-column: 1 / -1;
-    margin-top: 8px;
-    padding: 11px 14px;
-    border-radius: 11px;
+    margin-top: 12px;
+    padding: 13px 16px;
+    border-radius: 12px;
     background: #eef2f7;
     border: 1px solid #dbe2ea;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 18px;
 }
 
 .payroll-group-title {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 900;
     color: #111827;
     letter-spacing: .1px;
+    line-height: 1.35;
+}
+
+.payroll-group-total {
+    margin-left: auto;
+    padding-left: 18px;
+    flex: 0 0 auto;
+    font-size: 17px;
+    font-weight: 900;
+    white-space: nowrap;
+    color: #111827;
+    text-align: right;
+}
+
+.payroll-group.group-a {
+    background: #eff6ff;
+    border: 2px solid #60a5fa;
+}
+
+.payroll-group.group-a .payroll-group-title,
+.payroll-group.group-a .payroll-group-total {
+    color: #1d4ed8;
+}
+
+.payroll-group.group-b {
+    background: #fff7ed;
+    border: 2px solid #fb923c;
+}
+
+.payroll-group.group-b .payroll-group-title,
+.payroll-group.group-b .payroll-group-total {
+    color: #c2410c;
+}
+
+.payroll-group.group-c {
+    margin-top: 18px;
+    padding: 18px 20px;
+    background: #dcfce7;
+    border: 3px solid #16a34a;
+    box-shadow: 0 8px 22px rgba(22, 163, 74, .16);
+}
+
+.payroll-group.group-c .payroll-group-title {
+    font-size: 20px;
+    color: #166534;
+}
+
+.payroll-group.group-c .payroll-group-total {
+    font-size: 25px;
+    color: #15803d;
 }
 
 .payroll-subgroup {
     grid-column: 1 / -1;
-    margin-top: 6px;
-    padding: 9px 12px;
+    margin-top: 7px;
+    padding: 10px 13px;
     border-radius: 9px;
     background: #f3f4f6;
     border: 1px solid #d1d5db;
@@ -228,7 +278,28 @@ input {
     color: #1f2937;
     display: flex;
     align-items: center;
-    min-height: 20px;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 40px;
+}
+
+.payroll-subgroup-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1.35;
+}
+
+.payroll-subgroup-total {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding-left: 18px;
+    border-left: 1px solid #cbd5e1;
+    min-width: 130px;
+    text-align: right;
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 900;
+    color: #111827;
 }
 
 .payroll-subgroup span {
@@ -459,6 +530,23 @@ th {
 
     .employee-header {
         flex-direction: column;
+    }
+}
+
+@media (max-width: 600px) {
+    .payroll-group,
+    .payroll-subgroup {
+        align-items: flex-start;
+    }
+
+    .payroll-group-total,
+    .payroll-subgroup-total {
+        min-width: 105px;
+        font-size: 14px;
+    }
+
+    .payroll-group.group-c .payroll-group-total {
+        font-size: 21px;
     }
 }
 
@@ -2199,6 +2287,14 @@ function renderEmployee() {
     groups.forEach(function(group) {
         const groupHeader = document.createElement('div');
         groupHeader.className = 'payroll-group';
+
+        if (group.title.indexOf('A.') === 0) {
+            groupHeader.classList.add('group-a');
+        } else if (group.title.indexOf('B.') === 0) {
+            groupHeader.classList.add('group-b');
+        } else if (group.title.indexOf('C.') === 0) {
+            groupHeader.classList.add('group-c');
+        }
 
         const totalKey = group.total[0];
         const totalLabel = group.total[1];
