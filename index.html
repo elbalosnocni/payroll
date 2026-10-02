@@ -848,11 +848,17 @@ th {
             <div class="card">
                 <div class="admin-menu">
 
+                    <button id="menuDashboard" class="btn btn-primary">Dashboard</button>
+
                     <button
                         id="menuEmployees"
-                        class="btn btn-primary">
+                        class="btn btn-secondary">
                         Nhân viên
                     </button>
+
+                    <button id="menuAdmins" class="btn btn-secondary">Quản trị viên</button>
+                    <button id="menuPayrollConfig" class="btn btn-secondary">Cấu hình cột lương</button>
+                    <button id="menuAdminPassword" class="btn btn-secondary">Đổi mật khẩu Admin</button>
 
                     <button
                         id="menuSync"
@@ -871,6 +877,44 @@ th {
         </aside>
 
         <div class="admin-content">
+
+            <div id="adminDashboardPanel" class="card">
+                <h2 class="section-title">Dashboard</h2>
+                <div id="adminDashboardContent" class="payroll-grid"></div>
+            </div>
+
+            <div id="adminAdminsPanel" class="card hidden">
+                <h2 class="section-title">Quản lý Admin</h2>
+                <div class="toolbar" style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <input id="newAdminUsername" class="input" placeholder="Username Admin">
+                    <input id="newAdminPassword" class="input" type="password" placeholder="Mật khẩu >= 8 ký tự">
+                    <select id="newAdminRole" class="input">
+                        <option value="HR_ADMIN">HR_ADMIN</option>
+                        <option value="PAYROLL_ADMIN">PAYROLL_ADMIN</option>
+                        <option value="AUDITOR">AUDITOR</option>
+                        <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                    </select>
+                    <button id="createAdminButton" class="btn btn-primary">Tạo Admin</button>
+                </div>
+                <div class="table-wrapper">
+                    <table><thead><tr><th>Username</th><th>Role</th><th>Trạng thái</th><th>Đổi MK</th><th>Đăng nhập cuối</th><th>Thao tác</th></tr></thead>
+                    <tbody id="adminTableBody"></tbody></table>
+                </div>
+            </div>
+
+            <div id="adminPayrollConfigPanel" class="card hidden">
+                <h2 class="section-title">Cấu hình cột lương</h2>
+                <p class="subtitle">Các trường chuẩn được tạo tự động. Trường tùy chỉnh từ <b>PayrollCustomFields</b> sẽ được lưu vào ExtraData.</p>
+                <div class="table-wrapper"><table><thead><tr><th>FieldKey</th><th>Tên hiển thị</th><th>Type</th><th>Nhóm</th><th>Hiển thị</th></tr></thead><tbody id="payrollConfigBody"></tbody></table></div>
+            </div>
+
+            <div id="adminPasswordPanel" class="card hidden">
+                <h2 class="section-title">Đổi mật khẩu Admin</h2>
+                <div class="form-group"><label>Mật khẩu hiện tại</label><input id="adminCurrentPassword" type="password" class="input"></div>
+                <div class="form-group"><label>Mật khẩu mới</label><input id="adminNewPassword" type="password" class="input"></div>
+                <button id="adminChangePasswordButton" class="btn btn-primary">Đổi mật khẩu</button>
+                <div id="adminPasswordAlert" class="alert alert-error hidden" style="margin-top:10px;"></div>
+            </div>
 
             <div
                 id="adminEmployeesPanel"
@@ -1042,7 +1086,10 @@ const state = {
     employee: null,
     payroll: null,
     employees: [],
-    resetEmployeeCode: ''
+    resetEmployeeCode: '',
+    payrollConfig: [],
+    adminRole: '',
+    currentAdminPanel: 'dashboard'
 };
 
 const elements = {
@@ -1154,6 +1201,13 @@ document
         'click',
         showEmployeesPanel
     );
+
+document.getElementById('menuDashboard').addEventListener('click', showDashboardPanel);
+document.getElementById('menuAdmins').addEventListener('click', showAdminsPanel);
+document.getElementById('menuPayrollConfig').addEventListener('click', showPayrollConfigPanel);
+document.getElementById('menuAdminPassword').addEventListener('click', showAdminPasswordPanel);
+document.getElementById('createAdminButton').addEventListener('click', createAdmin);
+document.getElementById('adminChangePasswordButton').addEventListener('click', changeAdminPassword);
 
 document
     .getElementById('menuSync')
@@ -1293,6 +1347,10 @@ async function handleEmployeeLogin(event) {
 
         state.employee =
             result.employee;
+
+        state.payrollConfig = result.payrollConfig || [];
+
+        state.payrollConfig = result.payrollConfig || state.payrollConfig || [];
 
         state.payrollHistory =
             result.payrolls || (result.payroll ? [result.payroll] : []);
@@ -1510,12 +1568,13 @@ async function handleAdminLogin(event) {
             return;
         }
 
-        state.adminToken =
-            result.token;
-
+        state.adminToken = result.token;
+        state.adminRole = result.role || 'SUPER_ADMIN';
         showAdmin();
-
+        await loadDashboard();
         await loadEmployees();
+        await loadPayrollConfig();
+        if (state.adminRole === 'SUPER_ADMIN') await loadAdmins();
 
     } catch (error) {
         showAlert(
@@ -1525,6 +1584,68 @@ async function handleAdminLogin(event) {
     } finally {
         setLoading(false);
     }
+}
+
+async function loadDashboard() {
+    try {
+        const result = await api('adminDashboard', { token: state.adminToken });
+        if (!result.success) throw new Error(errorMessage(result.error));
+        const x = result.stats || {};
+        document.getElementById('adminDashboardContent').innerHTML = `
+            <div class="payroll-item"><div class="payroll-label">Tổng nhân viên</div><div class="payroll-value">${formatNumber(x.employees || 0)}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Đang hoạt động</div><div class="payroll-value">${formatNumber(x.activeEmployees || 0)}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Đang khóa</div><div class="payroll-value">${formatNumber(x.lockedEmployees || 0)}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Chưa đổi mật khẩu</div><div class="payroll-value">${formatNumber(x.mustChangePassword || 0)}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Admin hoạt động</div><div class="payroll-value">${formatNumber(x.activeAdmins || 0)}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Tổng dòng Payroll</div><div class="payroll-value">${formatNumber(x.payrollRows || 0)}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Sync gần nhất</div><div class="payroll-value">${escapeHtml((result.sync && result.sync.timestamp) || 'Chưa có')}</div></div>
+            <div class="payroll-item"><div class="payroll-label">Trạng thái Sync</div><div class="payroll-value">${escapeHtml((result.sync && result.sync.status) || '—')}</div></div>`;
+    } catch (e) { document.getElementById('adminDashboardContent').innerHTML = '<div class="alert alert-error">Không tải được Dashboard.</div>'; }
+}
+
+async function toggleEmployeeStatus(code, active) {
+    try {
+        setLoading(true, active ? 'Đang mở khóa...' : 'Đang khóa tài khoản...');
+        const r = await api('adminSetEmployeeStatus', {token: state.adminToken, employeeCode: code, active: active});
+        if (!r.success) throw new Error(errorMessage(r.error));
+        await loadEmployees(); await loadDashboard();
+    } catch(e) { alert(e.message || 'Không thể thay đổi trạng thái.'); }
+    finally { setLoading(false); }
+}
+
+async function loadAdmins() {
+    if (state.adminRole !== 'SUPER_ADMIN') return;
+    try {
+        const r = await api('adminListAdmins', {token: state.adminToken});
+        if (!r.success) throw new Error(errorMessage(r.error));
+        const body=document.getElementById('adminTableBody'); body.innerHTML='';
+        (r.admins||[]).forEach(a=>{
+            const tr=document.createElement('tr');
+            tr.innerHTML=`<td>${escapeHtml(a.username)}</td><td>${escapeHtml(a.role)}</td><td>${a.active?'<span class="badge badge-green">Hoạt động</span>':'<span class="badge badge-red">Khóa</span>'}${a.mustChangePassword?'<span class="badge badge-yellow">Đổi MK</span>':''}</td><td>${a.failedAttempts||0}</td><td>${escapeHtml(String(a.lastLoginAt||''))}</td><td><button class="btn ${a.active?'btn-danger':'btn-primary'}" onclick="toggleAdminStatus('${escapeAttribute(a.username)}',${a.active?'false':'true'})">${a.active?'Khóa':'Mở khóa'}</button></td>`;
+            body.appendChild(tr);
+        });
+    } catch(e) { document.getElementById('adminTableBody').innerHTML='<tr><td colspan="6">Không tải được danh sách Admin.</td></tr>'; }
+}
+
+async function toggleAdminStatus(username, active) {
+    try { setLoading(true,'Đang cập nhật Admin...'); const r=await api('adminSetAdminStatus',{token:state.adminToken,username:username,active:active}); if(!r.success)throw new Error(errorMessage(r.error)); await loadAdmins(); await loadDashboard(); } catch(e){alert(e.message||'Không thể cập nhật Admin.');} finally{setLoading(false);}
+}
+
+async function createAdmin() {
+    const username=document.getElementById('newAdminUsername').value.trim(); const password=document.getElementById('newAdminPassword').value; const role=document.getElementById('newAdminRole').value;
+    if(!username||!password){alert('Nhập username và mật khẩu.');return;}
+    try { setLoading(true,'Đang tạo Admin...'); const r=await api('adminCreateAdmin',{token:state.adminToken,username,password,role}); if(!r.success)throw new Error(errorMessage(r.error)); document.getElementById('newAdminUsername').value='';document.getElementById('newAdminPassword').value='';await loadAdmins();await loadDashboard();alert('Đã tạo Admin.'); } catch(e){alert(e.message||'Không thể tạo Admin.');} finally{setLoading(false);}
+}
+
+async function loadPayrollConfig() {
+    try { const r=await api('adminPayrollConfig',{token:state.adminToken}); if(!r.success)throw new Error(errorMessage(r.error)); state.payrollConfig=r.config||[]; const body=document.getElementById('payrollConfigBody'); body.innerHTML=''; state.payrollConfig.forEach(c=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${escapeHtml(c.fieldKey)}</td><td>${escapeHtml(c.label)}</td><td>${escapeHtml(c.type)}</td><td>${escapeHtml(c.group||'')}</td><td>${c.visible?'Có':'Ẩn'}</td>`;body.appendChild(tr);}); } catch(e) {}
+}
+
+async function changeAdminPassword() {
+    const alertBox=document.getElementById('adminPasswordAlert'); hideAlert(alertBox);
+    const current=document.getElementById('adminCurrentPassword').value; const next=document.getElementById('adminNewPassword').value;
+    if(!current||!next){showAlert(alertBox,'Vui lòng nhập đầy đủ mật khẩu.');return;}
+    try { setLoading(true,'Đang đổi mật khẩu Admin...'); const r=await api('adminChangePassword',{token:state.adminToken,currentPassword:current,newPassword:next}); if(!r.success){showAlert(alertBox,errorMessage(r.error));return;} document.getElementById('adminCurrentPassword').value='';document.getElementById('adminNewPassword').value='';alert('Đã đổi mật khẩu Admin.'); } catch(e){showAlert(alertBox,e.message||'Không thể đổi mật khẩu.');} finally{setLoading(false);}
 }
 
 async function loadEmployees() {
@@ -1654,11 +1775,8 @@ function renderEmployees(employees) {
                 }
             </td>
             <td>
-                <button
-                    class="btn btn-danger"
-                    onclick="openResetModal('${escapeAttribute(employee.employeeCode)}','${escapeAttribute(employee.fullName)}')">
-                    Reset MK
-                </button>
+                <button class="btn btn-danger" onclick="openResetModal('${escapeAttribute(employee.employeeCode)}','${escapeAttribute(employee.fullName)}')">Reset MK</button>
+                <button class="btn ${employee.active ? 'btn-secondary' : 'btn-primary'}" onclick="toggleEmployeeStatus('${escapeAttribute(employee.employeeCode)}', ${employee.active ? 'false' : 'true'})">${employee.active ? 'Khóa' : 'Mở khóa'}</button>
             </td>
         `;
 
@@ -1979,6 +2097,9 @@ function showAdmin() {
     elements.adminLogoutButton
         .classList
         .remove('hidden');
+
+    hideAllAdminPanels();
+    document.getElementById('adminDashboardPanel').classList.remove('hidden');
 }
 
 function hideAllViews() {
@@ -2001,7 +2122,16 @@ function hideAllViews() {
         .add('hidden');
 }
 
+function hideAllAdminPanels() {
+    ['adminDashboardPanel','adminEmployeesPanel','adminAdminsPanel','adminPayrollConfigPanel','adminPasswordPanel','adminSyncPanel','adminAuditPanel'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+}
+function showDashboardPanel(){hideAllAdminPanels();document.getElementById('adminDashboardPanel').classList.remove('hidden');state.currentAdminPanel='dashboard';loadDashboard();}
+function showAdminsPanel(){hideAllAdminPanels();document.getElementById('adminAdminsPanel').classList.remove('hidden');state.currentAdminPanel='admins';loadAdmins();}
+function showPayrollConfigPanel(){hideAllAdminPanels();document.getElementById('adminPayrollConfigPanel').classList.remove('hidden');state.currentAdminPanel='payrollConfig';loadPayrollConfig();}
+function showAdminPasswordPanel(){hideAllAdminPanels();document.getElementById('adminPasswordPanel').classList.remove('hidden');state.currentAdminPanel='password';}
+
 function showEmployeesPanel() {
+    hideAllAdminPanels();
     document
         .getElementById('adminEmployeesPanel')
         .classList
@@ -2019,6 +2149,7 @@ function showEmployeesPanel() {
 }
 
 async function showSyncPanel() {
+    hideAllAdminPanels();
     document
         .getElementById('adminEmployeesPanel')
         .classList
@@ -2038,6 +2169,7 @@ async function showSyncPanel() {
 }
 
 async function showAuditPanel() {
+    hideAllAdminPanels();
     document
         .getElementById('adminEmployeesPanel')
         .classList
@@ -2392,6 +2524,15 @@ function renderEmployee() {
     });
 }
 
+    // Dynamic custom fields from ExtraData / PayrollConfig.
+    const extra = payroll.ExtraData && typeof payroll.ExtraData === 'object' ? payroll.ExtraData : {};
+    const coreKeys = new Set(['BasicSalary','WorkingDays','HolidayDays','PaidLeaveDays','UnpaidLeaveDays','MinimumRegionalLeaveDays','OvertimeHours','HolidayWorkHours','HolidayOvertimeHours','NightHolidayOvertimeHours','HolidayWorkDayHours','HolidayOvertimeDayHours','NightOvertimeHours','NightHolidayOvertimeDayHours','NightShiftDays','OtherMoney','DisciplinaryMoney','Loyalty2Years','Loyalty5Years','Loyalty10Years','HousingAllowance','TransportationAllowance','AttendanceBonus','CommissionAndOverTargetBonus','SeveranceAndUnusedLeave','MonthlySalary','OvertimeSalary','OtherIncome','OtherDeductions','AdvancePayment','SocialInsurance','HealthInsurance','UnemploymentInsurance','PersonalIncomeTax','GrossIncome','NetSalary']);
+    const dynamic = Object.keys(extra).filter(k=>!coreKeys.has(k));
+    if(dynamic.length){
+        const h=document.createElement('div'); h.className='payroll-group group-a'; h.innerHTML='<div class="payroll-group-title">D. Thông tin bổ sung</div><div class="payroll-group-total">—</div>'; grid.appendChild(h);
+        dynamic.forEach(key=>{ const cfg=(state.payrollConfig||[]).find(x=>x.fieldKey===key); const type=cfg?cfg.type:'number'; const label=cfg?cfg.label:key; const item=document.createElement('div'); item.className='payroll-item'; item.innerHTML=`<div class="payroll-label">${escapeHtml(label)}</div><div class="payroll-value">${type==='money'?formatMoney(extra[key]):type==='number'?formatNumber(extra[key]):escapeHtml(String(extra[key]??''))}</div>`; grid.appendChild(item); });
+    }
+
 async function logoutEmployee() {
     try {
         if (state.employeeToken) {
@@ -2448,6 +2589,7 @@ async function logoutAdmin() {
     }
 
     state.adminToken = '';
+    state.adminRole = '';
     state.employees = [];
 
     document
@@ -2511,6 +2653,21 @@ function errorMessage(error) {
 
         NO_RECORDS:
             'Không có dữ liệu đồng bộ.',
+
+        ACCOUNT_LOCKED:
+            'Tài khoản đang bị khóa tạm thời. Vui lòng thử lại sau hoặc liên hệ Admin.',
+
+        FORBIDDEN:
+            'Bạn không có quyền thực hiện thao tác này.',
+
+        ADMIN_EXISTS:
+            'Username Admin đã tồn tại.',
+
+        ADMIN_NOT_FOUND:
+            'Không tìm thấy Admin.',
+
+        INVALID_USERNAME:
+            'Username chỉ được dùng chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.',
 
         SERVER_ERROR:
             'Máy chủ xảy ra lỗi.'

@@ -1,0 +1,4 @@
+FieldKey,ExcelColumn,Label,Type,Active
+PhoneAllowance,50,Phụ cấp điện thoại,money,TRUE
+MealAllowance,51,Phụ cấp ăn ca,money,TRUE
+Note,52,Ghi chú,text,FALSE

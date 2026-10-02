@@ -1,7 +1,7 @@
 Option Explicit
 
 Private Const API_URL As String = _
-    "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
+    "https://script.google.com/macros/s/AKfycbyW7OjW5OJhgaw8hiqSkelERGigCZ0mRWkGvPxkSlBFpGxUAO0rKY3H--co8fpxbYH8Fw/exec"
 
 Private Const SYNC_API_KEY As String = _
     "TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni"
@@ -54,6 +54,8 @@ Private Const COL_PERSONAL_INCOME_TAX As Long = 46
 Private Const COL_GROSS_INCOME As Long = 44
 Private Const COL_NET_SALARY As Long = 49
 Private Const COL_FULL_NAME As Long = 84
+
+Private Const CUSTOM_CONFIG_SHEET As String = "PayrollCustomFields"
 
 Private Const DSCNV_NAME_COL As Long = 2
 Private Const DSCNV_CITIZEN_COL As Long = 8
@@ -682,6 +684,10 @@ Private Function ReadPayrollWorkbook_( _
                     rowIndex, _
                     COL_NET_SALARY))
 
+        ' Custom fields: add once in PayrollCustomFields sheet and they are
+        ' automatically sent into ExtraData. No Code.gs/index.html edit needed.
+        AddConfiguredCustomFields_ record, wsSalary, rowIndex
+
         result.Add record
 
 ContinueSalaryRow:
@@ -1140,6 +1146,10 @@ Private Function RecordToJson_( _
         record("holidayOvertimeDayHours"), True
 
     AddJsonNumber_ json, _
+        "nightHolidayOvertimeDayHours", _
+        record("nightHolidayOvertimeDayHours"), True
+
+    AddJsonNumber_ json, _
         "nightShiftDays", _
         record("nightShiftDays"), True
 
@@ -1225,8 +1235,10 @@ Private Function RecordToJson_( _
             
     AddJsonNumber_ json, _
         "netSalary", _
-        record("netSalary"), False
+        record("netSalary"), True
 
+    json = json & """extraData"":{"
+    AddConfiguredExtraJson_ json, record
     json = json & "}"
 
     RecordToJson_ = json
@@ -1247,6 +1259,62 @@ Private Sub AddJsonString_( _
         json = json & ","
     End If
 
+End Sub
+
+Private Sub AddConfiguredCustomFields_(ByVal record As Object, ByVal wsSalary As Worksheet, ByVal rowIndex As Long)
+    Dim cfg As Worksheet
+    Dim lastRow As Long, r As Long
+    Dim fieldKey As String, fieldType As String, activeValue As String
+    Dim excelColumn As Long
+    On Error Resume Next
+    Set cfg = ThisWorkbook.Worksheets(CUSTOM_CONFIG_SHEET)
+    On Error GoTo 0
+    If cfg Is Nothing Then Exit Sub
+    lastRow = LastUsedRow_(cfg, 1)
+    If lastRow < 2 Then Exit Sub
+    For r = 2 To lastRow
+        fieldKey = Trim$(CStr(cfg.Cells(r,1).Value2))
+        If Len(fieldKey)=0 Then GoTo NextCustom
+        activeValue = LCase$(Trim$(CStr(cfg.Cells(r,5).Value2)))
+        If activeValue="false" Or activeValue="0" Or activeValue="no" Then GoTo NextCustom
+        If Not IsNumeric(cfg.Cells(r,2).Value2) Then GoTo NextCustom
+        excelColumn = CLng(cfg.Cells(r,2).Value2)
+        fieldType = LCase$(Trim$(CStr(cfg.Cells(r,4).Value2)))
+        If fieldType="text" Then
+            If record.Exists(fieldKey) Then
+                record(fieldKey)=CStr(wsSalary.Cells(rowIndex,excelColumn).Value2)
+            Else
+                record.Add fieldKey, CStr(wsSalary.Cells(rowIndex,excelColumn).Value2)
+            End If
+        Else
+            If record.Exists(fieldKey) Then
+                record(fieldKey)=CellNumber_(wsSalary.Cells(rowIndex,excelColumn))
+            Else
+                record.Add fieldKey, CellNumber_(wsSalary.Cells(rowIndex,excelColumn))
+            End If
+        End If
+NextCustom:
+    Next r
+End Sub
+
+Private Sub AddConfiguredExtraJson_(ByRef json As String, ByVal record As Object)
+    Dim core As Object, key As Variant, firstItem As Boolean
+    Set core = CreateObject("Scripting.Dictionary")
+    Dim names As Variant, i As Long
+    names = Array("employeeCode","fullName","citizenID","department","section","position","basicSalary","workingDays","holidayDays","paidLeaveDays","unpaidLeaveDays","overtimeHours","holidayWorkHours","holidayOvertimeHours","minimumRegionalLeaveDays","nightHolidayOvertimeHours","nightOvertimeHours","holidayWorkDayHours","holidayOvertimeDayHours","nightHolidayOvertimeDayHours","nightShiftDays","otherMoney","disciplinaryMoney","loyalty2Years","loyalty5Years","loyalty10Years","housingAllowance","transportationAllowance","attendanceBonus","severanceAndUnusedLeave","monthlySalary","overtimeSalary","commissionAndOverTargetBonus","otherIncome","otherDeductions","advancePayment","socialInsurance","healthInsurance","unemploymentInsurance","personalIncomeTax","grossIncome","netSalary")
+    For i=LBound(names) To UBound(names): core(names(i))=True: Next i
+    firstItem=True
+    For Each key In record.Keys
+        If Not core.Exists(CStr(key)) Then
+            If Not firstItem Then json=json & ","
+            If IsNumeric(record(key)) And VarType(record(key)) <> vbString Then
+                json=json & """ & JsonEscape_(CStr(key)) & "":" & JsonNumberString_(CDbl(record(key)))
+            Else
+                json=json & """ & JsonEscape_(CStr(key)) & "":"" & JsonEscape_(CStr(record(key))) & """
+            End If
+            firstItem=False
+        End If
+    Next key
 End Sub
 
 Private Sub AddJsonNumber_( _

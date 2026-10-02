@@ -1,7 +1,12 @@
 const CONFIG = {
   SPREADSHEET_ID: '1Y-f3xSzwrV2ycBnzThlrtgcOcHD2Z4iqLKqqTyVFejM',
 
-  SESSION_SECONDS: 1800,
+  SESSION_SECONDS: 3600,
+
+  LOGIN_MAX_ATTEMPTS: 5,
+  LOGIN_LOCK_MINUTES: 15,
+  SESSION_CACHE_SECONDS: 300,
+  ADMIN_DEFAULT_ROLE: 'SUPER_ADMIN',
 
   SYNC_API_KEY: 'TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni',
 
@@ -19,7 +24,9 @@ const CONFIG = {
     ADMINS: 'Admins',
     SESSIONS: 'Sessions',
     AUDIT: 'AuditLogs',
-    SYNC: 'SyncStatus'
+    SYNC: 'SyncStatus',
+    PAYROLL_CONFIG: 'PayrollConfig',
+    SYSTEM_SETTINGS: 'SystemSettings'
   }
 };
 
@@ -34,7 +41,10 @@ const EMPLOYEE_HEADERS = [
   'PasswordSalt',
   'MustChangePassword',
   'Active',
-  'UpdatedAt'
+  'UpdatedAt',
+  'FailedAttempts',
+  'LockedUntil',
+  'LastLoginAt'
 ];
 
 const PAYROLL_HEADERS = [
@@ -91,7 +101,8 @@ const PAYROLL_HEADERS = [
   'NetSalary',
   'NightHolidayOvertimeDayHours',
 
-  'UpdatedAt'
+  'UpdatedAt',
+  'ExtraData'
 ];
 
 const ADMIN_HEADERS = [
@@ -99,7 +110,13 @@ const ADMIN_HEADERS = [
   'PasswordHash',
   'PasswordSalt',
   'Active',
-  'UpdatedAt'
+  'UpdatedAt',
+  'Role',
+  'FailedAttempts',
+  'LockedUntil',
+  'MustChangePassword',
+  'LastLoginAt',
+  'LastPasswordChange'
 ];
 
 const SESSION_HEADERS = [
@@ -122,6 +139,14 @@ const AUDIT_HEADERS = [
   'Details'
 ];
 
+const PAYROLL_CONFIG_HEADERS = [
+  'FieldKey', 'Label', 'Type', 'Group', 'Subgroup', 'Visible', 'Order', 'Active'
+];
+
+const SYSTEM_SETTINGS_HEADERS = [
+  'Key', 'Value', 'UpdatedAt'
+];
+
 const SYNC_HEADERS = [
   'Timestamp',
   'Status',
@@ -137,7 +162,7 @@ function doGet(e) {
   return jsonResponse_({
     success: true,
     service: 'Internal Payroll API',
-    version: '1.0.0',
+    version: '2.0.0',
     timestamp: nowString_()
   });
 }
@@ -186,6 +211,27 @@ function doPost(e) {
       case 'adminSyncStatus':
         return jsonResponse_(adminSyncStatus_(body));
 
+      case 'adminDashboard':
+        return jsonResponse_(adminDashboard_(body));
+
+      case 'adminSetEmployeeStatus':
+        return jsonResponse_(adminSetEmployeeStatus_(body));
+
+      case 'adminChangePassword':
+        return jsonResponse_(adminChangePassword_(body));
+
+      case 'adminListAdmins':
+        return jsonResponse_(adminListAdmins_(body));
+
+      case 'adminCreateAdmin':
+        return jsonResponse_(adminCreateAdmin_(body));
+
+      case 'adminSetAdminStatus':
+        return jsonResponse_(adminSetAdminStatus_(body));
+
+      case 'adminPayrollConfig':
+        return jsonResponse_(adminPayrollConfig_(body));
+
       case 'syncPayroll':
         return jsonResponse_(syncPayroll_(body));
 
@@ -210,220 +256,102 @@ function doPost(e) {
 }
 
 function setup_(body) {
-  if (String(body.setupKey || '') !== CONFIG.SETUP_KEY) {
-    return {
-      success: false,
-      error: 'INVALID_SETUP_KEY'
-    };
+  if (String(body.setupKey || '') !== getSetting_('SETUP_KEY', '1235678')) {
+    return { success: false, error: 'INVALID_SETUP_KEY' };
   }
-
   ensureSystem_();
-
+  if (!getSetting_('SYNC_API_KEY','')) setSetting_('SYNC_API_KEY', CONFIG.SYNC_API_KEY);
+  if (!getSetting_('SETUP_KEY','')) setSetting_('SETUP_KEY', '1235678');
   const sheet = getSheet_(CONFIG.SHEETS.ADMINS);
-
-  const values = sheet.getDataRange().getValues();
-
-  let exists = false;
-
-  for (let i = 1; i < values.length; i++) {
-    if (String(values[i][0]).trim() === CONFIG.DEFAULT_ADMIN_USERNAME) {
-      exists = true;
-      break;
-    }
+  const admin = findAdmin_(CONFIG.DEFAULT_ADMIN_USERNAME);
+  if (!admin) {
+    const passwordData = createPasswordHash_(CONFIG.DEFAULT_ADMIN_PASSWORD);
+    sheet.appendRow([CONFIG.DEFAULT_ADMIN_USERNAME, passwordData.hash, passwordData.salt, true, nowString_(), CONFIG.ADMIN_DEFAULT_ROLE, 0, '', true, '', nowString_()]);
   }
-
-  if (!exists) {
-    const passwordData = createPasswordHash_(
-      CONFIG.DEFAULT_ADMIN_PASSWORD
-    );
-
-    sheet.appendRow([
-      CONFIG.DEFAULT_ADMIN_USERNAME,
-      passwordData.hash,
-      passwordData.salt,
-      true,
-      nowString_()
-    ]);
-  }
-
-  writeAudit_(
-    CONFIG.DEFAULT_ADMIN_USERNAME,
-    'ADMIN',
-    'SYSTEM_SETUP',
-    '',
-    '',
-    'System initialized'
-  );
-
-  return {
-    success: true,
-    message: 'SYSTEM_READY',
-    adminUsername: CONFIG.DEFAULT_ADMIN_USERNAME
-  };
+  writeAudit_(CONFIG.DEFAULT_ADMIN_USERNAME, CONFIG.ADMIN_DEFAULT_ROLE, 'SYSTEM_SETUP', '', '', 'System initialized / migrated');
+  return { success: true, message: 'SYSTEM_READY', adminUsername: CONFIG.DEFAULT_ADMIN_USERNAME };
 }
 
 function ensureSystem_() {
   const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-
   ensureSheet_(ss, CONFIG.SHEETS.EMPLOYEES, EMPLOYEE_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.PAYROLL, PAYROLL_HEADERS);
-  const adminSheet = ensureSheet_(ss, CONFIG.SHEETS.ADMINS, ADMIN_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.SESSIONS, SESSION_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.AUDIT, AUDIT_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.SYNC, SYNC_HEADERS);
-
-  // Tự khởi tạo tài khoản Admin mặc định nếu sheet Admins chưa có.
-  // Việc này giúp Admin đăng nhập ngay cả khi chưa chạy setup() thủ công.
-  const adminLastRow = adminSheet.getLastRow();
-  let adminExists = false;
-
-  if (adminLastRow > 1) {
-    const adminValues = adminSheet
-      .getRange(2, 1, adminLastRow - 1, ADMIN_HEADERS.length)
-      .getValues();
-
-    adminExists = adminValues.some(function(row) {
-      return String(row[0] || '').trim() === CONFIG.DEFAULT_ADMIN_USERNAME;
-    });
-  }
-
-  if (!adminExists) {
+  ensureSheet_(ss, CONFIG.SHEETS.ADMINS, ADMIN_HEADERS);
+  ensureSheet_(ss, CONFIG.SHEETS.PAYROLL_CONFIG, PAYROLL_CONFIG_HEADERS);
+  ensureSheet_(ss, CONFIG.SHEETS.SYSTEM_SETTINGS, SYSTEM_SETTINGS_HEADERS);
+  seedPayrollConfig_();
+  const adminSheet = getSheet_(CONFIG.SHEETS.ADMINS);
+  if (!findAdmin_(CONFIG.DEFAULT_ADMIN_USERNAME)) {
     const passwordData = createPasswordHash_(CONFIG.DEFAULT_ADMIN_PASSWORD);
-
-    adminSheet.appendRow([
-      CONFIG.DEFAULT_ADMIN_USERNAME,
-      passwordData.hash,
-      passwordData.salt,
-      true,
-      nowString_()
-    ]);
+    adminSheet.appendRow([CONFIG.DEFAULT_ADMIN_USERNAME, passwordData.hash, passwordData.salt, true, nowString_(), CONFIG.ADMIN_DEFAULT_ROLE, 0, '', true, '', nowString_()]);
   }
 }
 
 function ensureSheet_(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-  }
-
+  if (!sheet) sheet = ss.insertSheet(name);
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
-  } else {
-    const current = sheet
-      .getRange(1, 1, 1, headers.length)
-      .getValues()[0];
-
-    let changed = false;
-
-    for (let i = 0; i < headers.length; i++) {
-      if (String(current[i] || '') !== headers[i]) {
-        changed = true;
-        break;
-      }
-    }
-
-    if (changed) {
-      sheet
-        .getRange(1, 1, 1, headers.length)
-        .setValues([headers]);
-    }
+    return sheet;
   }
-
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const current = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v || '').trim());
+  headers.forEach(function(header) {
+    if (current.indexOf(header) === -1) {
+      const col = sheet.getLastColumn() + 1;
+      sheet.getRange(1, col).setValue(header);
+      current.push(header);
+    }
+  });
+  sheet.setFrozenRows(1);
   return sheet;
 }
 
+function seedPayrollConfig_() {
+  const sheet = getSheet_(CONFIG.SHEETS.PAYROLL_CONFIG);
+  const lastRow = sheet.getLastRow();
+  const existing = {};
+  if (lastRow > 1) {
+    sheet.getRange(2,1,lastRow-1,PAYROLL_CONFIG_HEADERS.length).getValues().forEach(r => existing[String(r[0]||'').trim()] = true);
+  }
+  const labels = { BasicSalary:'Lương cơ bản', WorkingDays:'Số ngày làm việc', HolidayDays:'Số ngày lễ', PaidLeaveDays:'Số ngày nghỉ hưởng lương', UnpaidLeaveDays:'Số ngày nghỉ không hưởng lương', OvertimeHours:'Số giờ làm ngoài giờ', HolidayWorkHours:'Số giờ làm ngày nghỉ', HolidayOvertimeHours:'Số giờ làm ngoài giờ ngày nghỉ', OtherMoney:'Tiền khác', HousingAllowance:'Tiền nhà ở', TransportationAllowance:'Tiền đi lại', AttendanceBonus:'Tiền thưởng chuyên cần', SocialInsurance:'BHXH', HealthInsurance:'BHYT', UnemploymentInsurance:'BHTN', PersonalIncomeTax:'Thuế thu nhập', AdvancePayment:'Tạm ứng', OtherDeductions:'Các khoản khấu trừ khác', GrossIncome:'Tổng thu nhập', NetSalary:'Lương thực lĩnh' };
+  const rows=[];
+  PAYROLL_HEADERS.forEach(function(h,i){
+    if (h==='ExtraData' || existing[h]) return;
+    rows.push([h, labels[h] || h, /Salary|Income|Money|Allowance|Bonus|Insurance|Tax|Payment|Deductions|Loyalty|Severance|Commission/.test(h) ? 'money' : 'number', '', '', true, i+1, true]);
+  });
+  if (rows.length) sheet.getRange(sheet.getLastRow()+1,1,rows.length,PAYROLL_CONFIG_HEADERS.length).setValues(rows);
+}
+
+function getSetting_(key, fallback) {
+  try {
+    const s=getSheet_(CONFIG.SHEETS.SYSTEM_SETTINGS), last=s.getLastRow();
+    if(last>1){ const rows=s.getRange(2,1,last-1,3).getValues(); for(const r of rows) if(String(r[0])===key) return String(r[1]||fallback); }
+  } catch(e) {}
+  return fallback;
+}
+
+function setSetting_(key, value) {
+  const s=getSheet_(CONFIG.SHEETS.SYSTEM_SETTINGS), last=s.getLastRow();
+  if(last>1){ const rows=s.getRange(2,1,last-1,3).getValues(); for(let i=0;i<rows.length;i++){ if(String(rows[i][0])===key){ s.getRange(i+2,2,1,2).setValues([[String(value),nowString_()]]); return; } } }
+  s.appendRow([key,String(value),nowString_()]);
+}
+
 function login_(body) {
-  ensureSystem_();
-
-  const citizenID = normalizeCitizenID_(body.citizenID);
-  const password = String(body.password || '');
-
-  if (!citizenID || !password) {
-    return {
-      success: false,
-      error: 'INVALID_LOGIN'
-    };
+  ensureSystem_(); const citizenID=normalizeCitizenID_(body.citizenID), password=String(body.password||''); if(!citizenID||!password)return {success:false,error:'INVALID_LOGIN'};
+  const employee=findEmployeeByCitizenID_(citizenID); if(!employee||!employee.active)return {success:false,error:'INVALID_LOGIN'};
+  if(isLockedUntil_(employee.lockedUntil))return {success:false,error:'ACCOUNT_LOCKED'};
+  if(!verifyPassword_(password,employee.passwordHash,employee.passwordSalt)){
+    const attempts=(employee.failedAttempts||0)+1; const sh=getSheet_(CONFIG.SHEETS.EMPLOYEES); sh.getRange(employee.row,12).setValue(attempts); if(attempts>=CONFIG.LOGIN_MAX_ATTEMPTS)sh.getRange(employee.row,13).setValue(new Date(Date.now()+CONFIG.LOGIN_LOCK_MINUTES*60000));
+    writeAudit_(employee.employeeCode,'EMPLOYEE','LOGIN_FAILED',employee.employeeCode,'','Invalid password; attempts='+attempts); return {success:false,error:attempts>=CONFIG.LOGIN_MAX_ATTEMPTS?'ACCOUNT_LOCKED':'INVALID_LOGIN'};
   }
-
-  const employee = findEmployeeByCitizenID_(citizenID);
-
-  if (!employee || !employee.active) {
-    writeAudit_(
-      citizenID,
-      'EMPLOYEE',
-      'LOGIN_FAILED',
-      citizenID,
-      '',
-      'Employee not found or inactive'
-    );
-
-    return {
-      success: false,
-      error: 'INVALID_LOGIN'
-    };
-  }
-
-  const valid = verifyPassword_(
-    password,
-    employee.passwordHash,
-    employee.passwordSalt
-  );
-
-  if (!valid) {
-    writeAudit_(
-      employee.employeeCode,
-      'EMPLOYEE',
-      'LOGIN_FAILED',
-      employee.employeeCode,
-      '',
-      'Invalid password'
-    );
-
-    return {
-      success: false,
-      error: 'INVALID_LOGIN'
-    };
-  }
-
-  const token = createSession_(
-    employee.employeeCode,
-    'EMPLOYEE'
-  );
-
-  writeAudit_(
-    employee.employeeCode,
-    'EMPLOYEE',
-    'LOGIN',
-    employee.employeeCode,
-    '',
-    'Employee login'
-  );
-
-  const response = {
-    success: true,
-    token: token,
-    mustChangePassword: employee.mustChangePassword,
-    employee: {
-      employeeCode: employee.employeeCode,
-      fullName: employee.fullName,
-      citizenID: employee.citizenID,
-      department: employee.department,
-      section: employee.section,
-      position: employee.position
-    }
-  };
-
-  if (!employee.mustChangePassword) {
-    const payrolls = getPayrollHistoryForEmployee_(
-      employee.employeeCode
-    );
-    response.payrolls = payrolls;
-    response.payroll = payrolls.length ? payrolls[0] : null;
-  }
-
-  return response;
+  const sh=getSheet_(CONFIG.SHEETS.EMPLOYEES); sh.getRange(employee.row,12,1,3).setValues([[0,'',nowString_()]]); const token=createSession_(employee.employeeCode,'EMPLOYEE');
+  writeAudit_(employee.employeeCode,'EMPLOYEE','LOGIN',employee.employeeCode,'','Employee login'); const response={success:true,token:token,mustChangePassword:employee.mustChangePassword,employee:{employeeCode:employee.employeeCode,fullName:employee.fullName,citizenID:employee.citizenID,department:employee.department,section:employee.section,position:employee.position}};
+  if(!employee.mustChangePassword){const payrolls=getPayrollHistoryForEmployee_(employee.employeeCode); response.payrolls=payrolls; response.payroll=payrolls.length?payrolls[0]:null; response.payrollConfig=readPayrollConfig_();} return response;
 }
 
 function changePassword_(body) {
@@ -567,7 +495,8 @@ function getPayroll_(body) {
   return {
     success: true,
     payrolls: payrolls,
-    payroll: payrolls.length ? payrolls[0] : null
+    payroll: payrolls.length ? payrolls[0] : null,
+    payrollConfig: readPayrollConfig_()
   };
 }
 
@@ -580,6 +509,7 @@ function logout_(body) {
     };
   }
 
+  CacheService.getScriptCache().remove('sess:' + token);
   const sheet = getSheet_(CONFIG.SHEETS.SESSIONS);
   const values = sheet.getDataRange().getValues();
 
@@ -597,70 +527,21 @@ function logout_(body) {
 
 function adminLogin_(body) {
   ensureSystem_();
-
-  const username = String(body.username || '').trim();
-  const password = String(body.password || '');
-
-  const admin = findAdmin_(username);
-
-  if (!admin || !admin.active) {
-    writeAudit_(
-      username,
-      'ADMIN',
-      'ADMIN_LOGIN_FAILED',
-      username,
-      '',
-      'Admin not found'
-    );
-
-    return {
-      success: false,
-      error: 'INVALID_LOGIN'
-    };
+  const username=String(body.username||'').trim(); const password=String(body.password||'');
+  const admin=findAdmin_(username);
+  if(!admin || !admin.active) { writeAudit_(username,'ADMIN','ADMIN_LOGIN_FAILED',username,'','Admin not found/inactive'); return {success:false,error:'INVALID_LOGIN'}; }
+  if(isLockedUntil_(admin.lockedUntil)) return {success:false,error:'ACCOUNT_LOCKED'};
+  if(!verifyPassword_(password,admin.passwordHash,admin.passwordSalt)){
+    const attempts=(Number(admin.failedAttempts)||0)+1;
+    const sheet=getSheet_(CONFIG.SHEETS.ADMINS);
+    if(attempts>=CONFIG.LOGIN_MAX_ATTEMPTS){ sheet.getRange(admin.row,8).setValue(nowString_()); sheet.getRange(admin.row,7).setValue(attempts); sheet.getRange(admin.row,8).setValue(new Date(Date.now()+CONFIG.LOGIN_LOCK_MINUTES*60000)); } else sheet.getRange(admin.row,7).setValue(attempts);
+    writeAudit_(username,'ADMIN','ADMIN_LOGIN_FAILED',username,'','Invalid password; attempts='+attempts);
+    return {success:false,error:attempts>=CONFIG.LOGIN_MAX_ATTEMPTS?'ACCOUNT_LOCKED':'INVALID_LOGIN'};
   }
-
-  if (
-    !verifyPassword_(
-      password,
-      admin.passwordHash,
-      admin.passwordSalt
-    )
-  ) {
-    writeAudit_(
-      username,
-      'ADMIN',
-      'ADMIN_LOGIN_FAILED',
-      username,
-      '',
-      'Invalid password'
-    );
-
-    return {
-      success: false,
-      error: 'INVALID_LOGIN'
-    };
-  }
-
-  const token = createSession_(
-    username,
-    'ADMIN'
-  );
-
-  writeAudit_(
-    username,
-    'ADMIN',
-    'ADMIN_LOGIN',
-    username,
-    '',
-    'Admin login'
-  );
-
-  return {
-    success: true,
-    token: token,
-    role: 'ADMIN',
-    username: username
-  };
+  const sheet=getSheet_(CONFIG.SHEETS.ADMINS); sheet.getRange(admin.row,7).setValue(0); sheet.getRange(admin.row,8).setValue(''); sheet.getRange(admin.row,10).setValue(nowString_());
+  const role=admin.role||CONFIG.ADMIN_DEFAULT_ROLE; const token=createSession_(username,role);
+  writeAudit_(username,role,'ADMIN_LOGIN',username,'','Admin login');
+  return {success:true,token:token,role:role,username:username,mustChangePassword:admin.mustChangePassword};
 }
 
 function adminEmployees_(body) {
@@ -723,73 +604,73 @@ function adminSearchEmployees_(body) {
 }
 
 function adminResetPassword_(body) {
-  const session = requireAdminSession_(body.token);
-
-  if (!session) {
-    return {
-      success: false,
-      error: 'UNAUTHORIZED'
-    };
-  }
-
-  const employeeCode = String(
-    body.employeeCode || ''
-  ).trim();
-
-  if (!employeeCode) {
-    return {
-      success: false,
-      error: 'EMPLOYEE_CODE_REQUIRED'
-    };
-  }
-
-  const employee = findEmployeeByEmployeeCode_(
-    employeeCode
-  );
-
-  if (!employee) {
-    return {
-      success: false,
-      error: 'EMPLOYEE_NOT_FOUND'
-    };
-  }
-
-  const defaultPassword = employee.employeeCode;
-
-  const passwordData = createPasswordHash_(
-    defaultPassword
-  );
-
-  const sheet = getSheet_(CONFIG.SHEETS.EMPLOYEES);
-
-  sheet
-    .getRange(employee.row, 7, 1, 4)
-    .setValues([[
-      passwordData.hash,
-      passwordData.salt,
-      true,
-      true
-    ]]);
-
-  sheet
-    .getRange(employee.row, 11)
-    .setValue(nowString_());
-
-  writeAudit_(
-    session.username,
-    'ADMIN',
-    'RESET_PASSWORD',
-    employeeCode,
-    '',
-    'Password reset to employee code'
-  );
-
-  return {
-    success: true,
-    message: 'PASSWORD_RESET',
-    employeeCode: employeeCode
-  };
+  const session=requireAdminSession_(body.token); if(!session) return {success:false,error:'UNAUTHORIZED'};
+  const employeeCode=String(body.employeeCode||'').trim(); if(!employeeCode) return {success:false,error:'EMPLOYEE_CODE_REQUIRED'};
+  const employee=findEmployeeByEmployeeCode_(employeeCode); if(!employee) return {success:false,error:'EMPLOYEE_NOT_FOUND'};
+  const pd=createPasswordHash_(employee.employeeCode); const sheet=getSheet_(CONFIG.SHEETS.EMPLOYEES);
+  sheet.getRange(employee.row,7,1,4).setValues([[pd.hash,pd.salt,true,true]]);
+  sheet.getRange(employee.row,12,1,2).setValues([[0,'']]); sheet.getRange(employee.row,11).setValue(nowString_());
+  writeAudit_(session.username,session.role,'RESET_PASSWORD',employeeCode,'','Password reset to employee code');
+  return {success:true,message:'PASSWORD_RESET',employeeCode:employeeCode};
 }
+
+function adminDashboard_(body) {
+  const session=requireAdminSession_(body.token); if(!session) return {success:false,error:'UNAUTHORIZED'};
+  const employees=readEmployees_(); const admins=readAdmins_();
+  const activeEmployees=employees.filter(e=>e.active).length; const lockedEmployees=employees.filter(e=>isLockedUntil_(e.lockedUntil)).length;
+  const mustChange=employees.filter(e=>e.mustChangePassword).length;
+  const sync=adminSyncStatus_({token:body.token});
+  return {success:true,stats:{employees:employees.length,activeEmployees:activeEmployees,lockedEmployees:lockedEmployees,mustChangePassword:mustChange,admins:admins.length,activeAdmins:admins.filter(a=>a.active).length,payrollRows:countPayrollRows_()},sync:sync.status||null};
+}
+
+function adminSetEmployeeStatus_(body) {
+  const session=requireAdminSession_(body.token); if(!session) return {success:false,error:'UNAUTHORIZED'};
+  const code=String(body.employeeCode||'').trim(); const active=body.active===true || String(body.active).toLowerCase()==='true';
+  const emp=findEmployeeByEmployeeCode_(code); if(!emp) return {success:false,error:'EMPLOYEE_NOT_FOUND'};
+  getSheet_(CONFIG.SHEETS.EMPLOYEES).getRange(emp.row,10).setValue(active); getSheet_(CONFIG.SHEETS.EMPLOYEES).getRange(emp.row,11).setValue(nowString_());
+  writeAudit_(session.username,session.role,active?'UNLOCK_EMPLOYEE':'LOCK_EMPLOYEE',code,'','Employee status changed');
+  return {success:true,active:active};
+}
+
+function adminChangePassword_(body) {
+  const session=requireAdminSession_(body.token); if(!session) return {success:false,error:'UNAUTHORIZED'};
+  const current=String(body.currentPassword||''), next=String(body.newPassword||''); if(next.length<8) return {success:false,error:'PASSWORD_TOO_SHORT'};
+  const admin=findAdmin_(session.username); if(!admin || !verifyPassword_(current,admin.passwordHash,admin.passwordSalt)) return {success:false,error:'CURRENT_PASSWORD_INVALID'};
+  const pd=createPasswordHash_(next); const s=getSheet_(CONFIG.SHEETS.ADMINS); s.getRange(admin.row,2,1,2).setValues([[pd.hash,pd.salt]]); s.getRange(admin.row,9).setValue(false); s.getRange(admin.row,11).setValue(nowString_()); s.getRange(admin.row,5).setValue(nowString_());
+  writeAudit_(session.username,session.role,'ADMIN_CHANGE_PASSWORD',session.username,'','Admin changed own password');
+  return {success:true};
+}
+
+function readAdmins_(){
+  const s=getSheet_(CONFIG.SHEETS.ADMINS), last=s.getLastRow(); if(last<=1)return[];
+  return s.getRange(2,1,last-1,ADMIN_HEADERS.length).getValues().map((r,i)=>({row:i+2,username:String(r[0]||''),active:bool_(r[3]),role:String(r[5]||CONFIG.ADMIN_DEFAULT_ROLE),failedAttempts:Number(r[6]||0),lockedUntil:r[7]||'',mustChangePassword:bool_(r[8]),lastLoginAt:r[9]||''}));
+}
+function adminListAdmins_(body){ const session=requireAdminSession_(body.token); if(!session||!isSuperAdmin_(session))return {success:false,error:'FORBIDDEN'}; return {success:true,admins:readAdmins_()}; }
+function adminCreateAdmin_(body){
+  const session=requireAdminSession_(body.token); if(!session||!isSuperAdmin_(session))return {success:false,error:'FORBIDDEN'};
+  const username=String(body.username||'').trim(); const password=String(body.password||''); const role=String(body.role||'HR_ADMIN').trim();
+  if(!/^[A-Za-z0-9._-]{3,50}$/.test(username))return {success:false,error:'INVALID_USERNAME'}; if(password.length<8)return {success:false,error:'PASSWORD_TOO_SHORT'}; if(findAdmin_(username))return {success:false,error:'ADMIN_EXISTS'};
+  const pd=createPasswordHash_(password); getSheet_(CONFIG.SHEETS.ADMINS).appendRow([username,pd.hash,pd.salt,true,nowString_(),role,0,'',false,'',nowString_()]);
+  writeAudit_(session.username,session.role,'CREATE_ADMIN',username,'','Admin created role='+role); return {success:true};
+}
+function adminSetAdminStatus_(body){
+  const session=requireAdminSession_(body.token); if(!session||!isSuperAdmin_(session))return {success:false,error:'FORBIDDEN'};
+  const username=String(body.username||'').trim(); const active=body.active===true || String(body.active).toLowerCase()==='true'; if(username===session.username && !active)return {success:false,error:'CANNOT_DISABLE_SELF'};
+  const a=findAdmin_(username); if(!a)return {success:false,error:'ADMIN_NOT_FOUND'}; getSheet_(CONFIG.SHEETS.ADMINS).getRange(a.row,4).setValue(active); getSheet_(CONFIG.SHEETS.ADMINS).getRange(a.row,5).setValue(nowString_());
+  writeAudit_(session.username,session.role,active?'UNLOCK_ADMIN':'LOCK_ADMIN',username,'','Admin status changed'); return {success:true};
+}
+function adminPayrollConfig_(body){
+  const session=requireAdminSession_(body.token); if(!session)return {success:false,error:'UNAUTHORIZED'};
+  return {success:true,config:readPayrollConfig_()};
+}
+function readPayrollConfig_(){
+  const s=getSheet_(CONFIG.SHEETS.PAYROLL_CONFIG), last=s.getLastRow(); if(last<=1)return[];
+  return s.getRange(2,1,last-1,PAYROLL_CONFIG_HEADERS.length).getValues().map(r=>({fieldKey:String(r[0]||''),label:String(r[1]||r[0]||''),type:String(r[2]||'number'),group:String(r[3]||''),subgroup:String(r[4]||''),visible:bool_(r[5]),order:Number(r[6]||0),active:bool_(r[7])})).filter(x=>x.active);
+}
+function countPayrollRows_(){ const s=getSheet_(CONFIG.SHEETS.PAYROLL); return Math.max(0,s.getLastRow()-1); }
+function isSuperAdmin_(session){ return String(session.role||'').toUpperCase()==='SUPER_ADMIN'; }
+function bool_(v){return v===true || String(v).toLowerCase()==='true' || String(v)==='1';}
+function isLockedUntil_(v){ if(!v)return false; const d=v instanceof Date?v:new Date(v); return !isNaN(d.getTime()) && d.getTime()>Date.now(); }
 
 function adminAuditLogs_(body) {
   const session = requireAdminSession_(body.token);
@@ -895,7 +776,7 @@ function adminSyncStatus_(body) {
 function syncPayroll_(body) {
   if (
     String(body.apiKey || '') !==
-    CONFIG.SYNC_API_KEY
+    getSetting_('SYNC_API_KEY', CONFIG.SYNC_API_KEY)
   ) {
     return {
       success: false,
@@ -969,6 +850,7 @@ function syncPayroll_(body) {
         return;
       }
 
+      if(record.extraData && typeof record.extraData !== 'object') record.extraData = {};
       const employeeData = {
         employeeCode: employeeCode,
         fullName: fullName,
@@ -1133,7 +1015,8 @@ function payrollRecordToRow_(
     numberValue_(record.netSalary),
     numberValue_(record.nightHolidayOvertimeDayHours),
 
-    nowString_()
+    nowString_(),
+    JSON.stringify(record.extraData || {})
   ];
 }
 
@@ -1185,17 +1068,8 @@ function upsertEmployee_(
       );
 
     sheet.appendRow([
-      employee.employeeCode,
-      employee.fullName,
-      employee.citizenID,
-      employee.department,
-      employee.section,
-      employee.position,
-      passwordData.hash,
-      passwordData.salt,
-      true,
-      true,
-      nowString_()
+      employee.employeeCode, employee.fullName, employee.citizenID, employee.department, employee.section, employee.position,
+      passwordData.hash, passwordData.salt, true, true, nowString_(), 0, '', ''
     ]);
 
     return;
@@ -1339,7 +1213,10 @@ function employeeFromRow_(row, rowNumber) {
     active:
       row[9] === true ||
       String(row[9]).toLowerCase() === 'true',
-    updatedAt: String(row[10] || '')
+    updatedAt: String(row[10] || ''),
+    failedAttempts: Number(row[11] || 0),
+    lockedUntil: row[12] || '',
+    lastLoginAt: row[13] || ''
   };
 }
 
@@ -1376,7 +1253,10 @@ function readEmployees_() {
       active:
         row[9] === true ||
         String(row[9]).toLowerCase() === 'true',
-      updatedAt: String(row[10] || '')
+      updatedAt: String(row[10] || ''),
+      failedAttempts: Number(row[11] || 0),
+      lockedUntil: row[12] || '',
+      lastLoginAt: row[13] || ''
     };
   });
 }
@@ -1474,180 +1354,31 @@ function payrollRowToObject_(row) {
   const result = {};
 
   PAYROLL_HEADERS.forEach(function(header, index) {
-    if (header === 'SalaryMonth') {
-      result[header] = normalizeSalaryMonth_(row[index]);
-    } else {
-      result[header] = row[index];
-    }
+    if (header === 'SalaryMonth') result[header] = normalizeSalaryMonth_(row[index]);
+    else if (header !== 'ExtraData') result[header] = row[index];
   });
-
+  if(row[PAYROLL_HEADERS.indexOf('ExtraData')]){ try { const extra=JSON.parse(String(row[PAYROLL_HEADERS.indexOf('ExtraData')])||'{}'); Object.keys(extra).forEach(k=>{ if(result[k]===undefined) result[k]=extra[k]; }); result.ExtraData=extra; } catch(e){ result.ExtraData={}; } }
   return result;
 }
 
-function createSession_(
-  username,
-  role
-) {
-  const token =
-    Utilities.getUuid().replace(/-/g, '') +
-    Utilities.getUuid().replace(/-/g, '');
-
-  const createdAt =
-    new Date();
-
-  const expiresAt =
-    new Date(
-      createdAt.getTime() +
-      CONFIG.SESSION_SECONDS * 1000
-    );
-
-  const employeeCode =
-    role === 'EMPLOYEE'
-      ? username
-      : '';
-
-  const sheet =
-    getSheet_(CONFIG.SHEETS.SESSIONS);
-
-  sheet.appendRow([
-    token,
-    username,
-    role,
-    employeeCode,
-    createdAt,
-    expiresAt,
-    true
-  ]);
-
-  return token;
+function createSession_(username, role) {
+  const token=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,''); const createdAt=new Date(); const expiresAt=new Date(createdAt.getTime()+CONFIG.SESSION_SECONDS*1000);
+  const employeeCode=role==='EMPLOYEE'?username:''; const session={token:token,username:username,role:role,employeeCode:employeeCode,createdAt:createdAt.toISOString(),expiresAt:expiresAt.toISOString()};
+  getSheet_(CONFIG.SHEETS.SESSIONS).appendRow([token,username,role,employeeCode,createdAt,expiresAt,true]);
+  CacheService.getScriptCache().put('sess:'+token,JSON.stringify(session),Math.min(CONFIG.SESSION_SECONDS,CONFIG.SESSION_CACHE_SECONDS)); return token;
 }
-
-function requireEmployeeSession_(token) {
-  const session =
-    findSession_(token);
-
-  if (!session) {
-    return null;
-  }
-
-  if (session.role !== 'EMPLOYEE') {
-    return null;
-  }
-
-  return session;
-}
-
-function requireAdminSession_(token) {
-  const session =
-    findSession_(token);
-
-  if (!session) {
-    return null;
-  }
-
-  if (session.role !== 'ADMIN') {
-    return null;
-  }
-
-  return session;
-}
-
-function findSession_(token) {
-  if (!token) {
-    return null;
-  }
-
-  const sheet =
-    getSheet_(CONFIG.SHEETS.SESSIONS);
-
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow <= 1) {
-    return null;
-  }
-
-  const values = sheet
-    .getRange(
-      2,
-      1,
-      lastRow - 1,
-      SESSION_HEADERS.length
-    )
-    .getValues();
-
-  const now =
-    new Date();
-
-  for (let i = 0; i < values.length; i++) {
-    if (
-      String(values[i][0]) === token &&
-      (
-        values[i][6] === true ||
-        String(values[i][6]).toLowerCase() === 'true'
-      )
-    ) {
-      const expires =
-        new Date(values[i][5]);
-
-      if (
-        isNaN(expires.getTime()) ||
-        expires.getTime() <= now.getTime()
-      ) {
-        sheet.getRange(i + 2, 7).setValue(false);
-        return null;
-      }
-
-      return {
-        row: i + 2,
-        token: token,
-        username: String(values[i][1] || ''),
-        role: String(values[i][2] || ''),
-        employeeCode: String(values[i][3] || ''),
-        createdAt: values[i][4],
-        expiresAt: values[i][5]
-      };
-    }
-  }
-
-  return null;
+function requireEmployeeSession_(token){const s=findSession_(token);return s&&s.role==='EMPLOYEE'?s:null;}
+function requireAdminSession_(token){const s=findSession_(token);return s&&s.role!=='EMPLOYEE'?s:null;}
+function findSession_(token){
+  if(!token)return null; const cache=CacheService.getScriptCache(), cached=cache.get('sess:'+token);
+  if(cached){try{const s=JSON.parse(cached); if(new Date(s.expiresAt).getTime()>Date.now())return s;}catch(e){}}
+  const sheet=getSheet_(CONFIG.SHEETS.SESSIONS), last=sheet.getLastRow(); if(last<=1)return null; const values=sheet.getRange(2,1,last-1,SESSION_HEADERS.length).getValues();
+  for(let i=0;i<values.length;i++){ if(String(values[i][0])!==token)continue; if(!bool_(values[i][6]))return null; const expires=new Date(values[i][5]); if(isNaN(expires.getTime())||expires.getTime()<=Date.now()){sheet.getRange(i+2,7).setValue(false);return null;} const s={token:token,username:String(values[i][1]||''),role:String(values[i][2]||''),employeeCode:String(values[i][3]||''),createdAt:values[i][4],expiresAt:values[i][5]}; cache.put('sess:'+token,JSON.stringify({token:s.token,username:s.username,role:s.role,employeeCode:s.employeeCode,createdAt:new Date(s.createdAt).toISOString(),expiresAt:new Date(s.expiresAt).toISOString()}),Math.min(CONFIG.SESSION_SECONDS,CONFIG.SESSION_CACHE_SECONDS)); return s; } return null;
 }
 
 function findAdmin_(username) {
-  const sheet =
-    getSheet_(CONFIG.SHEETS.ADMINS);
-
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow <= 1) {
-    return null;
-  }
-
-  const values = sheet
-    .getRange(
-      2,
-      1,
-      lastRow - 1,
-      ADMIN_HEADERS.length
-    )
-    .getValues();
-
-  for (let i = 0; i < values.length; i++) {
-    if (
-      String(values[i][0]).trim() === username
-    ) {
-      return {
-        row: i + 2,
-        username: String(values[i][0]),
-        passwordHash: String(values[i][1]),
-        passwordSalt: String(values[i][2]),
-        active:
-          values[i][3] === true ||
-          String(values[i][3]).toLowerCase() === 'true'
-      };
-    }
-  }
-
-  return null;
+  const sheet=getSheet_(CONFIG.SHEETS.ADMINS), last=sheet.getLastRow(); if(last<=1)return null; const values=sheet.getRange(2,1,last-1,ADMIN_HEADERS.length).getValues();
+  for(let i=0;i<values.length;i++){ if(String(values[i][0]||'').trim()===String(username).trim()) return {row:i+2,username:String(values[i][0]||''),passwordHash:String(values[i][1]||''),passwordSalt:String(values[i][2]||''),active:bool_(values[i][3]),updatedAt:values[i][4]||'',role:String(values[i][5]||CONFIG.ADMIN_DEFAULT_ROLE),failedAttempts:Number(values[i][6]||0),lockedUntil:values[i][7]||'',mustChangePassword:bool_(values[i][8]),lastLoginAt:values[i][9]||'',lastPasswordChange:values[i][10]||''}; } return null;
 }
 
 function createPasswordHash_(password) {
