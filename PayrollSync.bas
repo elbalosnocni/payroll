@@ -1,7 +1,7 @@
 Option Explicit
 
 Private Const API_URL As String = _
-    "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
+    "https://script.google.com/macros/s/AKfycbyW7OjW5OJhgaw8hiqSkelERGigCZ0mRWkGvPxkSlBFpGxUAO0rKY3H--co8fpxbYH8Fw/exec"
 
 Private Const SYNC_API_KEY As String = _
     "TRUONGCONGVU_SALARYSLIP_1988_Elbalosnocni"
