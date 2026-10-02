@@ -926,6 +926,14 @@ function syncPayroll_(body) {
 
   const source = body.source || {};
 
+  // Protect the endpoint from accidental oversized/broken payloads.
+  if (records.length > 10000) {
+    return {
+      success: false,
+      error: 'TOO_MANY_RECORDS'
+    };
+  }
+
   if (!month) {
     return {
       success: false,
@@ -1015,11 +1023,15 @@ function syncPayroll_(body) {
 
     if (payrollRows.length > 0) {
       const startRow = payrollSheet.getLastRow() + 1;
-      // Keep SalaryMonth as text so Google Sheets cannot turn 08-2026 into a Date.
-      payrollSheet.getRange(2, 7, Math.max(1, payrollSheet.getMaxRows() - 1), 1).setNumberFormat('@');
+      const targetRange = payrollSheet
+        .getRange(startRow, 1, payrollRows.length, PAYROLL_HEADERS.length);
+
+      targetRange.setValues(payrollRows);
+
+      // Keep SalaryMonth as text without formatting the entire sheet.
       payrollSheet
-        .getRange(startRow, 1, payrollRows.length, PAYROLL_HEADERS.length)
-        .setValues(payrollRows);
+        .getRange(startRow, 7, payrollRows.length, 1)
+        .setNumberFormat('@');
     }
 
     registerPayrollConfigFields_(discoveredFields);

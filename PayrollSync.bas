@@ -1,6 +1,6 @@
 Option Explicit
 
-Private Const PAYROLL_SYNC_VERSION As String = "2.1-HEADER-MAPPING"
+Private Const PAYROLL_SYNC_VERSION As String = "2.3-HEADER-MAPPING-ROBUST"
 
 Private Const API_URL As String = _
     "https://script.google.com/macros/s/AKfycbzCHDkrlhr4ZBzZUXGQe4P6RImV4YEe-IicO2W6PHWc0Fcmm9yblZ3GyCEa78KyCyf8/exec"
@@ -281,23 +281,39 @@ Private Function ReadPayrollWorkbook_( _
     For rowIndex = SHEET_START_ROW To lastSalaryRow
 
         employeeName = CellText_(wsSalary.Cells(rowIndex, salaryMap("fullName")))
-
-        If Len(employeeName) = 0 Then GoTo ContinueSalaryRow
-
-        normalizedName = NormalizeName_(employeeName)
         employeeCode = CellText_(wsSalary.Cells(rowIndex, salaryMap("employeeCode")))
 
-        If dscnvMap.Exists(normalizedName) Then
-            citizenID = dscnvMap(normalizedName)("CitizenID")
-            department = dscnvMap(normalizedName)("Department")
-            section = dscnvMap(normalizedName)("Section")
-            position = dscnvMap(normalizedName)("Position")
+        If Len(employeeName) = 0 Or Len(employeeCode) = 0 Then GoTo ContinueSalaryRow
+        If IsSummaryRow_(employeeName, employeeCode) Then GoTo ContinueSalaryRow
+
+        normalizedName = NormalizeName_(employeeName)
+
+        Dim dscnvItem As Object
+        Set dscnvItem = Nothing
+
+        If Len(employeeCode) > 0 Then
+            If dscnvMap.Exists("CODE|" & UCase$(employeeCode)) Then
+                Set dscnvItem = dscnvMap("CODE|" & UCase$(employeeCode))
+            End If
+        End If
+
+        If dscnvItem Is Nothing Then
+            If dscnvMap.Exists("NAME|" & normalizedName) Then
+                Set dscnvItem = dscnvMap("NAME|" & normalizedName)
+            End If
+        End If
+
+        If Not dscnvItem Is Nothing Then
+            citizenID = dscnvItem("CitizenID")
+            department = dscnvItem("Department")
+            section = dscnvItem("Section")
+            position = dscnvItem("Position")
         Else
             citizenID = ""
             department = ""
             section = ""
             position = ""
-            LogMessage "[" & factoryName & "] KHONG MAP DSCNV: " & employeeName
+            LogMessage "[" & factoryName & "] KHONG MAP DSCNV: " & employeeName & " / " & employeeCode
         End If
 
         Set record = CreateObject("Scripting.Dictionary")
@@ -379,28 +395,60 @@ End Function
 
 Private Function FindPayrollDataLastRow_(ByVal ws As Worksheet, ByVal nameColumn As Long) As Long
     Dim lastRow As Long
+    Dim codeCol As Long
     Dim r As Long
-    Dim marker As String
+    Dim employeeName As String
+    Dim employeeCode As String
+    Dim lastDataRow As Long
 
+    ' Do not stop at the first TOTAL/SUBTOTAL row.
+    ' Real payroll files can contain multiple TOTAL rows inside the sheet.
     lastRow = LastUsedRow_(ws, nameColumn)
+
     If lastRow < SHEET_START_ROW Then
         FindPayrollDataLastRow_ = SHEET_START_ROW - 1
         Exit Function
     End If
 
-    ' Cot B la cot nhom/tong trong file luong. Dung ngay truoc dong TOTAL.
-    For r = SHEET_START_ROW To lastRow
-        marker = UCase$(Trim$(CStr(ws.Cells(r, 2).Value2)))
-        marker = Replace$(marker, " ", "")
-        marker = Replace$(marker, vbTab, "")
+    codeCol = FindHeaderColumn_(ws, Array("Employee Code", "EmployeeCode", "Emp Code", "Mã nhân viên", "Ma nhan vien", "Mã NV"), SHEET_START_ROW - 1)
+    If codeCol = 0 Then codeCol = 4
 
-        If Left$(marker, 5) = "TOTAL" Then
-            FindPayrollDataLastRow_ = r - 1
-            Exit Function
+    lastDataRow = SHEET_START_ROW - 1
+
+    For r = SHEET_START_ROW To lastRow
+        employeeName = CellText_(ws.Cells(r, nameColumn))
+        employeeCode = CellText_(ws.Cells(r, codeCol))
+
+        ' A valid employee data row must have both employee code and name.
+        If Len(employeeName) > 0 And Len(employeeCode) > 0 Then
+            If Not IsSummaryRow_(employeeName, employeeCode) Then
+                lastDataRow = r
+            End If
         End If
     Next r
 
-    FindPayrollDataLastRow_ = lastRow
+    FindPayrollDataLastRow_ = lastDataRow
+End Function
+
+Private Function IsSummaryRow_(ByVal employeeName As String, ByVal employeeCode As String) As Boolean
+    Dim s As String
+
+    s = UCase$(Trim$(employeeName))
+    s = Replace$(s, " ", "")
+    s = Replace$(s, vbTab, "")
+
+    If Left$(s, 5) = "TOTAL" Or Left$(s, 7) = "SUBTOTAL" Then
+        IsSummaryRow_ = True
+        Exit Function
+    End If
+
+    If InStr(1, s, "TỔNG", vbTextCompare) > 0 Or _
+       InStr(1, s, "TONG", vbTextCompare) > 0 Then
+        IsSummaryRow_ = True
+        Exit Function
+    End If
+
+    IsSummaryRow_ = False
 End Function
 
 Private Function BuildDSCNVMap_(ByVal ws As Worksheet) As Object
@@ -410,6 +458,7 @@ Private Function BuildDSCNVMap_(ByVal ws As Worksheet) As Object
     Dim lastRow As Long
     Dim rowIndex As Long
     Dim employeeName As String
+    Dim employeeCode As String
     Dim key As String
     Dim item As Object
 
@@ -421,19 +470,38 @@ Private Function BuildDSCNVMap_(ByVal ws As Worksheet) As Object
 
     For rowIndex = SHEET_START_ROW To lastRow
         employeeName = CellText_(ws.Cells(rowIndex, headerMap("name")))
+        employeeCode = ""
+
+        If CLng(headerMap("employeeCode")) > 0 Then
+            employeeCode = CellText_(ws.Cells(rowIndex, headerMap("employeeCode")))
+        End If
+
         If Len(employeeName) > 0 Then
-            key = NormalizeName_(employeeName)
             Set item = CreateObject("Scripting.Dictionary")
             item.CompareMode = vbTextCompare
+
+            item.Add "EmployeeCode", employeeCode
             item.Add "CitizenID", ReadCitizenID_(ws.Cells(rowIndex, headerMap("citizenID")))
             item.Add "Department", CellText_(ws.Cells(rowIndex, headerMap("department")))
             item.Add "Section", CellText_(ws.Cells(rowIndex, headerMap("section")))
             item.Add "Position", CellText_(ws.Cells(rowIndex, headerMap("position")))
 
-            If map.Exists(key) Then
-                LogMessage "CANH BAO: Trung ten trong DSCNV: " & employeeName
-            Else
+            ' Prefer employee-code index when available.
+            If Len(employeeCode) > 0 Then
+                key = "CODE|" & UCase$(employeeCode)
+                If Not map.Exists(key) Then
+                    map.Add key, item
+                Else
+                    LogMessage "CANH BAO: Trung ma nhan vien trong DSCNV: " & employeeCode
+                End If
+            End If
+
+            ' Also maintain a name index as a fallback for legacy files.
+            key = "NAME|" & NormalizeName_(employeeName)
+            If Not map.Exists(key) Then
                 map.Add key, item
+            Else
+                LogMessage "CANH BAO: Trung ten trong DSCNV: " & employeeName
             End If
         End If
     Next rowIndex
@@ -453,7 +521,7 @@ Private Function BuildSalaryHeaderMap_(ByVal ws As Worksheet) As Object
     Set map = CreateObject("Scripting.Dictionary")
     map.CompareMode = vbTextCompare
 
-    specs = SalaryFieldSpecs_()
+    Set specs = SalaryFieldSpecs_()
 
     For i = 1 To specs.Count
         key = CStr(specs(i)(0))
@@ -533,6 +601,8 @@ Private Function BuildDSCNVHeaderMap_(ByVal ws As Worksheet) As Object
     Set map = CreateObject("Scripting.Dictionary")
     map.CompareMode = vbTextCompare
 
+    ' Employee code is optional because some legacy DSCNV files do not contain it.
+    map.Add "employeeCode", FindHeaderColumn_(ws, Array("Employee Code", "EmployeeCode", "Emp Code", "Mã nhân viên", "Ma nhan vien", "Mã NV"), SHEET_START_ROW - 1)
     map.Add "name", FindHeaderWithFallback_(ws, Array("Name", "Full Name", "Employee Name", "Họ tên", "Ho ten", "Tên nhân viên"), 2, "DSCNV Name")
     map.Add "citizenID", FindHeaderWithFallback_(ws, Array("Citizen ID", "CitizenID", "CCCD", "CMND", "ID Card", "Số CCCD", "So CCCD"), 8, "DSCNV CitizenID")
     map.Add "department", FindHeaderWithFallback_(ws, Array("Department", "Dept", "Bộ phận", "Bo phan"), 32, "DSCNV Department")
