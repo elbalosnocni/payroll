@@ -1041,6 +1041,8 @@ const state = {
     adminToken: '',
     employee: null,
     payroll: null,
+    payrollHistory: [],
+    payrollSchema: [],
     employees: [],
     resetEmployeeCode: ''
 };
@@ -1446,6 +1448,19 @@ async function loadEmployeePayroll() {
             result.payrolls || (result.payroll ? [result.payroll] : []);
         state.payroll =
             state.payrollHistory[0] || result.payroll || null;
+
+        // Header Mapping VBA đưa các cột mới vào ExtraData.
+        // Schema được GAS tự sinh từ các Header mới nên frontend không cần sửa code.
+        try {
+            const schemaResult = await api('getPayrollSchema', {
+                token: state.employeeToken
+            });
+            state.payrollSchema = schemaResult.success
+                ? (schemaResult.fields || [])
+                : [];
+        } catch (schemaError) {
+            state.payrollSchema = [];
+        }
 
         showEmployee();
 
@@ -2390,6 +2405,85 @@ function renderEmployee() {
             appendFields(group.fields || []);
         }
     });
+
+    renderDynamicPayrollFields_(grid, payroll);
+}
+
+function humanizeFieldKey_(key) {
+    return String(key || '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^./, function(c) { return c.toUpperCase(); });
+}
+
+function inferDynamicType_(key, configuredType, value) {
+    const type = String(configuredType || 'auto').toLowerCase();
+    if (type !== 'auto') return type;
+    if (typeof value === 'boolean') return 'boolean';
+    if (typeof value === 'number') {
+        const k = String(key || '').toLowerCase();
+        if (/(day|days|hour|hours|qty|quantity|count|number|rate|percent|ratio|month)/.test(k)) {
+            return 'number';
+        }
+        return 'money';
+    }
+    return 'text';
+}
+
+function renderDynamicPayrollFields_(grid, payroll) {
+    const extra = payroll && payroll.extraData;
+    if (!extra || typeof extra !== 'object') return;
+
+    const schemaMap = {};
+    (state.payrollSchema || []).forEach(function(field) {
+        schemaMap[String(field.key)] = field;
+    });
+
+    const keys = Object.keys(extra).filter(function(key) {
+        return extra[key] !== null && extra[key] !== undefined && String(extra[key]) !== '';
+    });
+
+    if (!keys.length) return;
+
+    keys.sort(function(a, b) {
+        const fa = schemaMap[a];
+        const fb = schemaMap[b];
+        const oa = fa ? Number(fa.order || 9999) : 9999;
+        const ob = fb ? Number(fb.order || 9999) : 9999;
+        return oa - ob || a.localeCompare(b);
+    });
+
+    const header = document.createElement('div');
+    header.className = 'payroll-group';
+    header.innerHTML = `
+        <div class="payroll-group-title">D. Các khoản bổ sung từ Excel</div>
+        <div class="payroll-group-total">${keys.length} khoản</div>
+    `;
+    grid.appendChild(header);
+
+    keys.forEach(function(key) {
+        const field = schemaMap[key] || {};
+        const value = extra[key];
+        const type = inferDynamicType_(key, field.type, value);
+        let display;
+
+        if (type === 'money') display = formatMoney(value);
+        else if (type === 'number') display = formatNumber(value);
+        else if (type === 'boolean') display = value ? 'Có' : 'Không';
+        else display = escapeHtml(String(value));
+
+        const item = document.createElement('div');
+        item.className = 'payroll-item payroll-dynamic-item';
+        item.innerHTML = `
+            <div class="payroll-label">
+                ${escapeHtml(field.label || humanizeFieldKey_(key))}
+            </div>
+            <div class="payroll-value">${display}</div>
+        `;
+        grid.appendChild(item);
+    });
 }
 
 async function logoutEmployee() {
@@ -2409,6 +2503,8 @@ async function logoutEmployee() {
     state.employeeToken = '';
     state.employee = null;
     state.payroll = null;
+    state.payrollHistory = [];
+    state.payrollSchema = [];
 
     document
         .getElementById('citizenID')

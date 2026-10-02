@@ -19,7 +19,8 @@ const CONFIG = {
     ADMINS: 'Admins',
     SESSIONS: 'Sessions',
     AUDIT: 'AuditLogs',
-    SYNC: 'SyncStatus'
+    SYNC: 'SyncStatus',
+    PAYROLL_CONFIG: 'PayrollConfig'
   }
 };
 
@@ -91,7 +92,8 @@ const PAYROLL_HEADERS = [
   'NetSalary',
   'NightHolidayOvertimeDayHours',
 
-  'UpdatedAt'
+  'UpdatedAt',
+  'ExtraData'
 ];
 
 const ADMIN_HEADERS = [
@@ -120,6 +122,16 @@ const AUDIT_HEADERS = [
   'Target',
   'IP',
   'Details'
+];
+
+const PAYROLL_CONFIG_HEADERS = [
+  'FieldKey',
+  'Label',
+  'Type',
+  'Active',
+  'Order',
+  'CreatedAt',
+  'UpdatedAt'
 ];
 
 const SYNC_HEADERS = [
@@ -188,6 +200,9 @@ function doPost(e) {
 
       case 'syncPayroll':
         return jsonResponse_(syncPayroll_(body));
+
+      case 'getPayrollSchema':
+        return jsonResponse_(getPayrollSchema_(body));
 
       case 'setup':
         return jsonResponse_(setup_(body));
@@ -267,6 +282,7 @@ function ensureSystem_() {
 
   ensureSheet_(ss, CONFIG.SHEETS.EMPLOYEES, EMPLOYEE_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.PAYROLL, PAYROLL_HEADERS);
+  ensureSheet_(ss, CONFIG.SHEETS.PAYROLL_CONFIG, PAYROLL_CONFIG_HEADERS);
   const adminSheet = ensureSheet_(ss, CONFIG.SHEETS.ADMINS, ADMIN_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.SESSIONS, SESSION_HEADERS);
   ensureSheet_(ss, CONFIG.SHEETS.AUDIT, AUDIT_HEADERS);
@@ -302,35 +318,32 @@ function ensureSystem_() {
 
 function ensureSheet_(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-  }
+  if (!sheet) sheet = ss.insertSheet(name);
 
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
-  } else {
-    const current = sheet
-      .getRange(1, 1, 1, headers.length)
-      .getValues()[0];
-
-    let changed = false;
-
-    for (let i = 0; i < headers.length; i++) {
-      if (String(current[i] || '') !== headers[i]) {
-        changed = true;
-        break;
-      }
-    }
-
-    if (changed) {
-      sheet
-        .getRange(1, 1, 1, headers.length)
-        .setValues([headers]);
-    }
+    return sheet;
   }
 
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const current = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const existing = {};
+  current.forEach(function(value, index) {
+    const key = String(value || '').trim();
+    if (key) existing[key] = index + 1;
+  });
+
+  let nextCol = lastCol + 1;
+  headers.forEach(function(header) {
+    if (!existing[header]) {
+      sheet.getRange(1, nextCol).setValue(header);
+      existing[header] = nextCol;
+      nextCol++;
+    }
+  });
+
+  sheet.setFrozenRows(1);
   return sheet;
 }
 
@@ -953,6 +966,7 @@ function syncPayroll_(body) {
     });
 
     let employeeCount = 0;
+    const discoveredFields = {};
 
     Object.keys(uniqueRecords).forEach(function(codeKey) {
       const record = uniqueRecords[codeKey];
@@ -977,6 +991,8 @@ function syncPayroll_(body) {
         section: String(record.section || ''),
         position: String(record.position || '')
       };
+
+      collectExtraFieldKeys_(record.extraData, discoveredFields);
 
       upsertEmployee_(
         employeeSheet,
@@ -1005,6 +1021,8 @@ function syncPayroll_(body) {
         .getRange(startRow, 1, payrollRows.length, PAYROLL_HEADERS.length)
         .setValues(payrollRows);
     }
+
+    registerPayrollConfigFields_(discoveredFields);
 
     const statusSheet =
       getSheet_(CONFIG.SHEETS.SYNC);
@@ -1133,7 +1151,8 @@ function payrollRecordToRow_(
     numberValue_(record.netSalary),
     numberValue_(record.nightHolidayOvertimeDayHours),
 
-    nowString_()
+    nowString_(),
+    JSON.stringify(record.extraData || {})
   ];
 }
 
@@ -1476,12 +1495,111 @@ function payrollRowToObject_(row) {
   PAYROLL_HEADERS.forEach(function(header, index) {
     if (header === 'SalaryMonth') {
       result[header] = normalizeSalaryMonth_(row[index]);
+    } else if (header === 'ExtraData') {
+      result.extraData = parseExtraData_(row[index]);
     } else {
       result[header] = row[index];
     }
   });
 
   return result;
+}
+
+function parseExtraData_(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function collectExtraFieldKeys_(extraData, target) {
+  if (!extraData || typeof extraData !== 'object') return;
+  Object.keys(extraData).forEach(function(key) {
+    const safe = String(key || '').trim();
+    if (safe) target[safe] = true;
+  });
+}
+
+function humanizeFieldKey_(key) {
+  return String(key || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, function(c) { return c.toUpperCase(); });
+}
+
+function inferFieldType_(value) {
+  if (typeof value === 'number') return 'money';
+  if (typeof value === 'boolean') return 'boolean';
+  return 'text';
+}
+
+function registerPayrollConfigFields_(fields) {
+  const keys = Object.keys(fields || {});
+  if (!keys.length) return;
+
+  const sheet = getSheet_(CONFIG.SHEETS.PAYROLL_CONFIG);
+  const lastRow = sheet.getLastRow();
+  const existing = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, PAYROLL_CONFIG_HEADERS.length).getValues()
+    : [];
+  const map = {};
+  existing.forEach(function(row, i) {
+    const key = String(row[0] || '').trim();
+    if (key) map[key] = i + 2;
+  });
+
+  const append = [];
+  keys.sort().forEach(function(key) {
+    if (!map[key]) {
+      append.push([
+        key,
+        humanizeFieldKey_(key),
+        'auto',
+        true,
+        9999,
+        nowString_(),
+        nowString_()
+      ]);
+    }
+  });
+
+  if (append.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, append.length, PAYROLL_CONFIG_HEADERS.length)
+      .setValues(append);
+  }
+}
+
+function getPayrollSchema_(body) {
+  const session = requireEmployeeSession_(body.token);
+  if (!session) return { success: false, error: 'SESSION_EXPIRED' };
+
+  ensureSystem_();
+  const sheet = getSheet_(CONFIG.SHEETS.PAYROLL_CONFIG);
+  const lastRow = sheet.getLastRow();
+  const rows = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, PAYROLL_CONFIG_HEADERS.length).getValues()
+    : [];
+
+  const fields = rows
+    .filter(function(row) { return String(row[0] || '').trim() && row[3] !== false; })
+    .sort(function(a, b) { return Number(a[4] || 9999) - Number(b[4] || 9999); })
+    .map(function(row) {
+      return {
+        key: String(row[0]),
+        label: String(row[1] || humanizeFieldKey_(row[0])),
+        type: String(row[2] || 'auto'),
+        active: row[3] !== false,
+        order: Number(row[4] || 9999)
+      };
+    });
+
+  return { success: true, fields: fields };
 }
 
 function createSession_(
