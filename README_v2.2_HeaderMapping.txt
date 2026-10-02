@@ -47,3 +47,13 @@ Nên backup Google Sheet trước khi deploy.
 - GitHub Pages: thay index.html.
 - VBA: tiếp tục dùng PayrollSync Header Mapping v2.1.
 - Sync thử 1 tháng test trước khi chạy production.
+
+
+8. BAN SUA 02/10/2026
+- Sua loi VBA "Too many line continuations": SalaryFieldSpecs_ khong con dung mot Array() dai 38 dong. Mapping duoc tao bang Collection + SalarySpecAdd_.
+- Bao toan alias co dau va khong dau de nhan dien Header Excel.
+- GrossIncome van map dung cot AR (44) khi khong tim thay Header.
+- Them FindPayrollDataLastRow_: doc tu dong 7 va dung ngay truoc dong co cot B bat dau bang TOTAL, TOTAL1, TOTAL2, TOTAL3. Neu khong co dong TOTAL thi fallback ve dong cuoi cua cot FullName.
+- Rut gon tinh OtherIncome thanh ham OtherIncomeTotal_, van giu dung tong cac nhom muc III.
+- Giao dien phieu luong duoc giu nguyen: A noi bat, B noi bat, C - Luong thuc linh noi bat nhat; tien cua I/II/III hien rieng ben phai tieu de.
+- Code.gs van tinh OtherIncome = tong cac subgroup muc III, khong phu thuoc cot OtherIncome trong Excel.

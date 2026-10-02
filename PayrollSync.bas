@@ -272,9 +272,9 @@ Private Function ReadPayrollWorkbook_( _
     LogMessage "[" & factoryName & "] Dang nhan dien Header sheet DSCNV..."
     Set dscnvMap = BuildDSCNVMap_(wsDSCNV)
 
-    lastSalaryRow = LastUsedRow_(wsSalary, salaryMap("fullName"))
+    lastSalaryRow = FindPayrollDataLastRow_(wsSalary, salaryMap("fullName"))
 
-    LogMessage "[" & factoryName & "] Salary last row: " & CStr(lastSalaryRow)
+    LogMessage "[" & factoryName & "] Salary data last row: " & CStr(lastSalaryRow)
 
     Set extraHeaders = CollectExtraHeaders_(wsSalary, salaryMap)
 
@@ -340,17 +340,7 @@ Private Function ReadPayrollWorkbook_( _
         record.Add "overtimeSalary", NumberByField_(wsSalary, rowIndex, salaryMap, "overtimeSalary")
         record.Add "commissionAndOverTargetBonus", NumberByField_(wsSalary, rowIndex, salaryMap, "commissionAndOverTargetBonus")
 
-        record.Add "otherIncome", _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "otherMoney") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "disciplinaryMoney") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "loyalty2Years") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "loyalty5Years") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "loyalty10Years") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "housingAllowance") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "transportationAllowance") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "attendanceBonus") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "commissionAndOverTargetBonus") + _
-            NumberByField_(wsSalary, rowIndex, salaryMap, "severanceAndUnusedLeave")
+        record.Add "otherIncome", OtherIncomeTotal_(wsSalary, rowIndex, salaryMap)
 
         record.Add "otherDeductions", NumberByField_(wsSalary, rowIndex, salaryMap, "otherDeductions")
         record.Add "advancePayment", NumberByField_(wsSalary, rowIndex, salaryMap, "advancePayment")
@@ -385,6 +375,32 @@ ErrorHandler:
         On Error GoTo 0
     End If
     Err.Raise Err.Number, "ReadPayrollWorkbook_", Err.Description
+End Function
+
+Private Function FindPayrollDataLastRow_(ByVal ws As Worksheet, ByVal nameColumn As Long) As Long
+    Dim lastRow As Long
+    Dim r As Long
+    Dim marker As String
+
+    lastRow = LastUsedRow_(ws, nameColumn)
+    If lastRow < SHEET_START_ROW Then
+        FindPayrollDataLastRow_ = SHEET_START_ROW - 1
+        Exit Function
+    End If
+
+    ' Cot B la cot nhom/tong trong file luong. Dung ngay truoc dong TOTAL.
+    For r = SHEET_START_ROW To lastRow
+        marker = UCase$(Trim$(CStr(ws.Cells(r, 2).Value2)))
+        marker = Replace$(marker, " ", "")
+        marker = Replace$(marker, vbTab, "")
+
+        If Left$(marker, 5) = "TOTAL" Then
+            FindPayrollDataLastRow_ = r - 1
+            Exit Function
+        End If
+    Next r
+
+    FindPayrollDataLastRow_ = lastRow
 End Function
 
 Private Function BuildDSCNVMap_(ByVal ws As Worksheet) As Object
@@ -427,7 +443,7 @@ End Function
 
 Private Function BuildSalaryHeaderMap_(ByVal ws As Worksheet) As Object
     Dim map As Object
-    Dim specs As Variant
+    Dim specs As Collection
     Dim i As Long
     Dim col As Long
     Dim key As String
@@ -439,7 +455,7 @@ Private Function BuildSalaryHeaderMap_(ByVal ws As Worksheet) As Object
 
     specs = SalaryFieldSpecs_()
 
-    For i = LBound(specs) To UBound(specs)
+    For i = 1 To specs.Count
         key = CStr(specs(i)(0))
         required = CBool(specs(i)(2))
         legacyCol = CLng(specs(i)(3))
@@ -462,48 +478,55 @@ Private Function BuildSalaryHeaderMap_(ByVal ws As Worksheet) As Object
     Set BuildSalaryHeaderMap_ = map
 End Function
 
-Private Function SalaryFieldSpecs_() As Variant
+Private Function SalaryFieldSpecs_() As Collection
+    Dim specs As Collection
+    Set specs = New Collection
+
     ' key, aliases(), required, legacy fallback column
-    SalaryFieldSpecs_ = Array( _
-        Array("employeeCode", Array("Employee Code", "EmployeeCode", "Emp Code", "Mã nhân viên", "Ma nhan vien", "Mã NV"), True, 4), _
-        Array("fullName", Array("Full Name", "FullName", "Employee Name", "Name", "Họ tên", "Ho ten", "Tên nhân viên", "Ten nhan vien"), True, 84), _
-        Array("basicSalary", Array("Basic Salary", "BasicSalary", "Lương cơ bản", "Luong co ban"), False, 6), _
-        Array("workingDays", Array("Working Days", "WorkingDays", "Ngày công", "Ngay cong", "Paid Working Days"), False, 8), _
-        Array("holidayDays", Array("Holiday Days", "HolidayDays", "Ngày lễ", "Ngay le"), False, 9), _
-        Array("paidLeaveDays", Array("Paid Leave Days", "PaidLeaveDays", "Phép hưởng lương", "Phep huong luong"), False, 10), _
-        Array("unpaidLeaveDays", Array("Unpaid Leave Days", "UnpaidLeaveDays", "Phép không lương", "Phep khong luong"), False, 11), _
-        Array("overtimeHours", Array("Overtime Hours", "OvertimeHours", "Giờ tăng ca", "Gio tang ca", "OT Hours"), False, 12), _
-        Array("holidayWorkHours", Array("Holiday Work Hours", "HolidayWorkHours", "Giờ làm ngày lễ", "Gio lam ngay le"), False, 13), _
-        Array("holidayOvertimeHours", Array("Holiday Overtime Hours", "HolidayOvertimeHours", "Giờ OT ngày lễ", "Gio OT ngay le"), False, 14), _
-        Array("minimumRegionalLeaveDays", Array("Minimum Regional Leave Days", "MinimumRegionalLeaveDays", "Ngày phép tối thiểu vùng", "Ngay phep toi thieu vung"), False, 15), _
-        Array("nightHolidayOvertimeHours", Array("Night Holiday OT", "Night Holiday Overtime Hours", "NightHolidayOvertimeHours", "Giờ OT đêm ngày lễ", "Gio OT dem ngay le"), False, 16), _
-        Array("nightOvertimeHours", Array("Night OT", "Night Overtime Hours", "NightOvertimeHours", "Giờ OT ban đêm", "Gio OT ban dem"), False, 17), _
-        Array("holidayWorkDayHours", Array("Holiday Work Day Hours", "HolidayWorkDayHours", "Giờ ngày làm lễ", "Gio ngay lam le"), False, 18), _
-        Array("holidayOvertimeDayHours", Array("Holiday OT Day Hours", "HolidayOvertimeDayHours", "Giờ ngày OT lễ", "Gio ngay OT le"), False, 19), _
-        Array("nightHolidayOvertimeDayHours", Array("Night Holiday OT Day", "NightHolidayOvertimeDayHours", "Giờ ngày OT đêm lễ", "Gio ngay OT dem le"), False, 20), _
-        Array("nightShiftDays", Array("Night Shift Days", "NightShiftDays", "Ngày ca đêm", "Ngay ca dem"), False, 21), _
-        Array("otherMoney", Array("Other Money", "OtherMoney", "Tiền khác", "Tien khac"), False, 24), _
-        Array("disciplinaryMoney", Array("Disciplinary Money", "DisciplinaryMoney", "Tiền kỷ luật", "Tien ky luat"), False, 25), _
-        Array("loyalty2Years", Array("Loyalty 2 Years", "Loyalty2Years", "Thâm niên 2 năm", "Tham nien 2 nam"), False, 26), _
-        Array("loyalty5Years", Array("Loyalty 5 Years", "Loyalty5Years", "Thâm niên 5 năm", "Tham nien 5 nam"), False, 27), _
-        Array("loyalty10Years", Array("Loyalty 10 Years", "Loyalty10Years", "Thâm niên 10 năm", "Tham nien 10 nam"), False, 28), _
-        Array("housingAllowance", Array("Housing", "Housing Allowance", "HousingAllowance", "Phụ cấp nhà ở", "Phu cap nha o"), False, 29), _
-        Array("transportationAllowance", Array("Transport", "Transportation Allowance", "TransportationAllowance", "Phụ cấp đi lại", "Phu cap di lai"), False, 30), _
-        Array("attendanceBonus", Array("Attendance", "Attendance Bonus", "AttendanceBonus", "Chuyên cần", "Chuyen can"), False, 31), _
-        Array("severanceAndUnusedLeave", Array("Severance Unused Leave", "SeveranceAndUnusedLeave", "Trợ cấp thôi việc phép tồn", "Tro cap thoi viec phep ton"), False, 32), _
-        Array("socialInsurance", Array("Social Insurance", "SocialInsurance", "BHXH", "BHXH Employee", "Bảo hiểm xã hội"), False, 33), _
-        Array("healthInsurance", Array("Health Insurance", "HealthInsurance", "BHYT", "BHYT Employee", "Bảo hiểm y tế"), False, 34), _
-        Array("unemploymentInsurance", Array("Unemployment Insurance", "UnemploymentInsurance", "BHTN", "BHTN Employee", "Bảo hiểm thất nghiệp"), False, 35), _
-        Array("otherDeductions", Array("Other Deductions", "OtherDeductions", "Khấu trừ khác", "Khau tru khac"), False, 36), _
-        Array("advancePayment", Array("Advance", "Advance Payment", "AdvancePayment", "Tạm ứng", "Tam ung"), False, 37), _
-        Array("monthlySalary", Array("Monthly Salary", "MonthlySalary", "Lương tháng", "Luong thang"), False, 40), _
-        Array("overtimeSalary", Array("Overtime Salary", "OvertimeSalary", "Tiền tăng ca", "Tien tang ca"), False, 41), _
-        Array("commissionAndOverTargetBonus", Array("Commission", "Commission And Over Target Bonus", "CommissionAndOverTargetBonus", "Hoa hồng", "Hoa hong"), False, 43), _
-        Array("grossIncome", Array("Gross Income", "GrossIncome", "Tổng thu nhập", "Tong thu nhap"), False, 44), _
-        Array("personalIncomeTax", Array("Personal Income Tax", "PersonalIncomeTax", "PIT", "Thuế TNCN", "Thue TNCN"), False, 46), _
-        Array("netSalary", Array("Net Salary", "NetSalary", "Thực nhận", "Thuc nhan", "Net Pay"), False, 49) _
-    )
+    SalarySpecAdd_ specs, "employeeCode", Array("Employee Code", "EmployeeCode", "Emp Code", "Mã nhân viên", "Ma nhan vien", "Mã NV"), True, 4
+    SalarySpecAdd_ specs, "fullName", Array("Full Name", "FullName", "Employee Name", "Name", "Họ tên", "Ho ten", "Tên nhân viên", "Ten nhan vien"), True, 84
+    SalarySpecAdd_ specs, "basicSalary", Array("Basic Salary", "BasicSalary", "Lương cơ bản", "Luong co ban"), False, 6
+    SalarySpecAdd_ specs, "workingDays", Array("Working Days", "WorkingDays", "Ngày công", "Ngay cong", "Paid Working Days"), False, 8
+    SalarySpecAdd_ specs, "holidayDays", Array("Holiday Days", "HolidayDays", "Ngày lễ", "Ngay le"), False, 9
+    SalarySpecAdd_ specs, "paidLeaveDays", Array("Paid Leave Days", "PaidLeaveDays", "Phép hưởng lương", "Phep huong luong"), False, 10
+    SalarySpecAdd_ specs, "unpaidLeaveDays", Array("Unpaid Leave Days", "UnpaidLeaveDays", "Phép không lương", "Phep khong luong"), False, 11
+    SalarySpecAdd_ specs, "overtimeHours", Array("Overtime Hours", "OvertimeHours", "Giờ tăng ca", "Gio tang ca", "OT Hours"), False, 12
+    SalarySpecAdd_ specs, "holidayWorkHours", Array("Holiday Work Hours", "HolidayWorkHours", "Giờ làm ngày lễ", "Gio lam ngay le"), False, 13
+    SalarySpecAdd_ specs, "holidayOvertimeHours", Array("Holiday Overtime Hours", "HolidayOvertimeHours", "Giờ OT ngày lễ", "Gio OT ngay le"), False, 14
+    SalarySpecAdd_ specs, "minimumRegionalLeaveDays", Array("Minimum Regional Leave Days", "MinimumRegionalLeaveDays", "Ngày phép tối thiểu vùng", "Ngay phep toi thieu vung"), False, 15
+    SalarySpecAdd_ specs, "nightHolidayOvertimeHours", Array("Night Holiday OT", "Night Holiday Overtime Hours", "NightHolidayOvertimeHours", "Giờ OT đêm ngày lễ", "Gio OT dem ngay le"), False, 16
+    SalarySpecAdd_ specs, "nightOvertimeHours", Array("Night OT", "Night Overtime Hours", "NightOvertimeHours", "Giờ OT ban đêm", "Gio OT ban dem"), False, 17
+    SalarySpecAdd_ specs, "holidayWorkDayHours", Array("Holiday Work Day Hours", "HolidayWorkDayHours", "Giờ ngày làm lễ", "Gio ngay lam le"), False, 18
+    SalarySpecAdd_ specs, "holidayOvertimeDayHours", Array("Holiday OT Day Hours", "HolidayOvertimeDayHours", "Giờ ngày OT lễ", "Gio ngay OT le"), False, 19
+    SalarySpecAdd_ specs, "nightHolidayOvertimeDayHours", Array("Night Holiday OT Day", "NightHolidayOvertimeDayHours", "Giờ ngày OT đêm lễ", "Gio ngay OT dem le"), False, 20
+    SalarySpecAdd_ specs, "nightShiftDays", Array("Night Shift Days", "NightShiftDays", "Ngày ca đêm", "Ngay ca dem"), False, 21
+    SalarySpecAdd_ specs, "otherMoney", Array("Other Money", "OtherMoney", "Tiền khác", "Tien khac"), False, 24
+    SalarySpecAdd_ specs, "disciplinaryMoney", Array("Disciplinary Money", "DisciplinaryMoney", "Tiền kỷ luật", "Tien ky luat"), False, 25
+    SalarySpecAdd_ specs, "loyalty2Years", Array("Loyalty 2 Years", "Loyalty2Years", "Thâm niên 2 năm", "Tham nien 2 nam"), False, 26
+    SalarySpecAdd_ specs, "loyalty5Years", Array("Loyalty 5 Years", "Loyalty5Years", "Thâm niên 5 năm", "Tham nien 5 nam"), False, 27
+    SalarySpecAdd_ specs, "loyalty10Years", Array("Loyalty 10 Years", "Loyalty10Years", "Thâm niên 10 năm", "Tham nien 10 nam"), False, 28
+    SalarySpecAdd_ specs, "housingAllowance", Array("Housing", "Housing Allowance", "HousingAllowance", "Phụ cấp nhà ở", "Phu cap nha o"), False, 29
+    SalarySpecAdd_ specs, "transportationAllowance", Array("Transport", "Transportation Allowance", "TransportationAllowance", "Phụ cấp đi lại", "Phu cap di lai"), False, 30
+    SalarySpecAdd_ specs, "attendanceBonus", Array("Attendance", "Attendance Bonus", "AttendanceBonus", "Chuyên cần", "Chuyen can"), False, 31
+    SalarySpecAdd_ specs, "severanceAndUnusedLeave", Array("Severance Unused Leave", "SeveranceAndUnusedLeave", "Trợ cấp thôi việc phép tồn", "Tro cap thoi viec phep ton"), False, 32
+    SalarySpecAdd_ specs, "socialInsurance", Array("Social Insurance", "SocialInsurance", "BHXH", "BHXH Employee", "Bảo hiểm xã hội"), False, 33
+    SalarySpecAdd_ specs, "healthInsurance", Array("Health Insurance", "HealthInsurance", "BHYT", "BHYT Employee", "Bảo hiểm y tế"), False, 34
+    SalarySpecAdd_ specs, "unemploymentInsurance", Array("Unemployment Insurance", "UnemploymentInsurance", "BHTN", "BHTN Employee", "Bảo hiểm thất nghiệp"), False, 35
+    SalarySpecAdd_ specs, "otherDeductions", Array("Other Deductions", "OtherDeductions", "Khấu trừ khác", "Khau tru khac"), False, 36
+    SalarySpecAdd_ specs, "advancePayment", Array("Advance", "Advance Payment", "AdvancePayment", "Tạm ứng", "Tam ung"), False, 37
+    SalarySpecAdd_ specs, "monthlySalary", Array("Monthly Salary", "MonthlySalary", "Lương tháng", "Luong thang"), False, 40
+    SalarySpecAdd_ specs, "overtimeSalary", Array("Overtime Salary", "OvertimeSalary", "Tiền tăng ca", "Tien tang ca"), False, 41
+    SalarySpecAdd_ specs, "commissionAndOverTargetBonus", Array("Commission", "Commission And Over Target Bonus", "CommissionAndOverTargetBonus", "Hoa hồng", "Hoa hong"), False, 43
+    SalarySpecAdd_ specs, "grossIncome", Array("Gross Income", "GrossIncome", "Tổng thu nhập", "Tong thu nhap"), False, 44
+    SalarySpecAdd_ specs, "personalIncomeTax", Array("Personal Income Tax", "PersonalIncomeTax", "PIT", "Thuế TNCN", "Thue TNCN"), False, 46
+    SalarySpecAdd_ specs, "netSalary", Array("Net Salary", "NetSalary", "Thực nhận", "Thuc nhan", "Net Pay"), False, 49
+
+    Set SalaryFieldSpecs_ = specs
 End Function
+
+Private Sub SalarySpecAdd_(ByVal specs As Collection, ByVal key As String, ByVal aliases As Variant, ByVal required As Boolean, ByVal legacyCol As Long)
+    specs.Add Array(key, aliases, required, legacyCol)
+End Sub
 
 Private Function BuildDSCNVHeaderMap_(ByVal ws As Worksheet) As Object
     Dim map As Object
@@ -567,6 +590,24 @@ Private Function NormalizeHeader_(ByVal value As String) As String
         s = Replace(s, "  ", " ")
     Loop
     NormalizeHeader_ = s
+End Function
+
+Private Function OtherIncomeTotal_(ByVal ws As Worksheet, ByVal rowIndex As Long, ByVal salaryMap As Object) As Double
+    Dim total As Double
+
+    total = 0
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "otherMoney")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "disciplinaryMoney")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "loyalty2Years")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "loyalty5Years")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "loyalty10Years")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "housingAllowance")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "transportationAllowance")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "attendanceBonus")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "commissionAndOverTargetBonus")
+    total = total + NumberByField_(ws, rowIndex, salaryMap, "severanceAndUnusedLeave")
+
+    OtherIncomeTotal_ = total
 End Function
 
 Private Function NumberByField_(ByVal ws As Worksheet, ByVal rowIndex As Long, ByVal headerMap As Object, ByVal fieldKey As String) As Double
@@ -666,10 +707,10 @@ Private Function SafeFieldKey_(ByVal header As String) As String
     SafeFieldKey_ = out
 End Function
 
-Private Sub LogHeaderMap_(ByVal ws As Worksheet, ByVal map As Object, ByVal specs As Variant)
+Private Sub LogHeaderMap_(ByVal ws As Worksheet, ByVal map As Object, ByVal specs As Collection)
     Dim i As Long, key As String, col As Long
     LogMessage "--- HEADER MAPPING: " & ws.Name & " ---"
-    For i = LBound(specs) To UBound(specs)
+    For i = 1 To specs.Count
         key = CStr(specs(i)(0))
         col = CLng(map(key))
         If col > 0 Then
